@@ -1,8 +1,8 @@
 # Implementation Roadmap
 
 > **Version:** 1.0
-> **Last Updated:** 2025-08-11
-> **Status:** Planning Complete
+> **Last Updated:** 2026-02-23
+> **Status:** Phase 0 Complete, Phase 1 In Progress
 
 ---
 
@@ -49,11 +49,11 @@ npm run test:coverage
 ```
 
 ### Exit Criteria
-- [ ] TypeScript compiles with no errors
-- [ ] All unit tests pass
-- [ ] Catalog fetch returns 300+ models from live API
-- [ ] All models have valid modality (no "unknown" classifications)
-- [ ] Code coverage >80% for `src/catalog/`
+- [x] TypeScript compiles with no errors
+- [x] All unit tests pass
+- [x] Catalog fetch returns 300+ models from live API
+- [x] All models have valid modality (no "unknown" classifications)
+- [x] Code coverage >80% for `src/catalog/`
 
 ---
 
@@ -111,13 +111,25 @@ npm run dev -- "test" --verbose
 
 ### Exit Criteria
 - [ ] `whichmodel "summarize documents"` returns 3 recommendations
-- [ ] All recommendations have valid model IDs
-- [ ] JSON output matches schema
+- [x] All recommendations have valid model IDs
+- [x] JSON output matches schema
 - [ ] Terminal output matches examples
 - [ ] Fallback mode works when LLM fails
 - [ ] All error cases have helpful messages
 - [ ] Cost per recommendation <$0.01
 - [ ] All 20+ modality detection tests pass
+
+### Current Phase 1 Milestone Status (2026-02-23)
+- [ ] M1.1 LLM prompt templates (current prompt implementation does not fully match locked prompt text)
+- [x] M1.2 OpenRouter LLM client
+- [x] M1.3 JSON response parser
+- [x] M1.4 Recommendation validator
+- [ ] M1.5 Fallback mode (partial; invalid API key path currently hard-fails instead of falling back)
+- [ ] M1.6 Terminal formatter (implemented, but does not yet match output examples exactly)
+- [x] M1.7 JSON formatter
+- [x] M1.8 CLI entry point
+- [ ] M1.9 Error handling (partial)
+- [x] M1.10 Configuration (basic env/config support implemented)
 
 ---
 
