@@ -163,14 +163,19 @@ function normalizeModalities(values?: string[]): string[] {
 function mapFalCategoryToModality(category: string): Modality | null {
   const normalized = category.trim().toLowerCase();
 
-  if (normalized.includes("image-generation") || normalized.includes("text-to-image")) {
+  if (
+    normalized.includes("image-generation") ||
+    normalized.includes("text-to-image") ||
+    normalized.includes("image-to-image")
+  ) {
     return "image";
   }
 
   if (
     normalized.includes("image-to-video") ||
     normalized.includes("text-to-video") ||
-    normalized.includes("video-generation")
+    normalized.includes("video-generation") ||
+    normalized.includes("video-to-video")
   ) {
     return "video";
   }
