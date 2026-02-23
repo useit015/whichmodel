@@ -4,6 +4,11 @@ import { OpenRouterCatalog } from "../catalog/openrouter.js";
 import { getConfig } from "../config.js";
 import { ExitCode, WhichModelError, type ModelEntry } from "../types.js";
 
+const VALID_SOURCES = ["openrouter", "fal", "replicate", "elevenlabs", "together"] as const;
+const SUPPORTED_SOURCES = ["openrouter", "fal"] as const;
+const VALID_SOURCE_SET = new Set<string>(VALID_SOURCES);
+const SUPPORTED_SOURCE_SET = new Set<string>(SUPPORTED_SOURCES);
+
 async function main(): Promise<void> {
   const sources = parseSourcesArg(process.argv.slice(2));
   const config = getConfig();
@@ -84,7 +89,7 @@ async function main(): Promise<void> {
   }
 }
 
-function parseSourcesArg(args: string[]): string[] {
+export function parseSourcesArg(args: string[]): string[] {
   const sourceFlagIndex = args.findIndex((arg) => arg === "--sources");
   if (sourceFlagIndex < 0) {
     return ["openrouter"];
@@ -104,7 +109,26 @@ function parseSourcesArg(args: string[]): string[] {
     .map((item) => item.trim().toLowerCase())
     .filter(Boolean);
 
-  return sources.length > 0 ? sources : ["openrouter"];
+  const normalizedSources = sources.length > 0 ? sources : ["openrouter"];
+  const invalid = normalizedSources.filter((source) => !VALID_SOURCE_SET.has(source));
+  if (invalid.length > 0) {
+    throw new WhichModelError(
+      `Invalid source value(s): ${invalid.join(", ")}.`,
+      ExitCode.INVALID_ARGUMENTS,
+      `Valid sources: ${VALID_SOURCES.join(", ")}`
+    );
+  }
+
+  const unsupported = normalizedSources.filter((source) => !SUPPORTED_SOURCE_SET.has(source));
+  if (unsupported.length > 0) {
+    throw new WhichModelError(
+      `Source(s) not supported in Phase 2: ${unsupported.join(", ")}.`,
+      ExitCode.INVALID_ARGUMENTS,
+      `Use --sources ${SUPPORTED_SOURCES.join(",")}`
+    );
+  }
+
+  return normalizedSources;
 }
 
 void main().catch((error: unknown) => {
