@@ -563,3 +563,42 @@ export interface OpenRouterChatResponse {
   };
   model: string;
 }
+
+/**
+ * Raw fal.ai model from API response
+ */
+export interface FalModel {
+  id: string;
+  name: string;
+  description?: string;
+  category: string;
+  pricing?: {
+    type: string;
+    amount: number;
+  };
+  inputs?: Record<
+    string,
+    {
+      type: string;
+      description?: string;
+      default?: unknown;
+    }
+  >;
+  outputs?: Record<
+    string,
+    {
+      type: string;
+      description?: string;
+    }
+  >;
+}
+
+/**
+ * fal.ai API response structure
+ */
+export type FalResponse =
+  | FalModel[]
+  | {
+      models?: FalModel[];
+      data?: FalModel[];
+    };

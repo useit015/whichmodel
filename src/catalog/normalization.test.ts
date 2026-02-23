@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
-import type { OpenRouterModel } from "../types.js";
+import type { FalModel, OpenRouterModel } from "../types.js";
 import {
   classifyModality,
   extractFamily,
   extractProvider,
+  normalizeFalModel,
   normalizeOpenRouterModel,
 } from "./normalization.js";
 
@@ -101,5 +102,74 @@ describe("normalizeOpenRouterModel", () => {
     expect(normalized?.inputModalities).toEqual(["text"]);
     expect(normalized?.outputModalities).toEqual(["text"]);
     expect(normalized?.modality).toBe("text");
+  });
+});
+
+describe("normalizeFalModel", () => {
+  it("normalizes image-generation category", () => {
+    const raw: FalModel = {
+      id: "black-forest-labs/flux-1.1-pro",
+      name: "Flux 1.1 Pro",
+      category: "image-generation",
+      pricing: {
+        type: "per_image",
+        amount: 0.04,
+      },
+    };
+
+    const normalized = normalizeFalModel(raw);
+    expect(normalized).not.toBeNull();
+    expect(normalized?.id).toBe("fal::black-forest-labs/flux-1.1-pro");
+    expect(normalized?.modality).toBe("image");
+    expect(normalized?.pricing).toMatchObject({ type: "image", perImage: 0.04 });
+    expect(normalized?.inputModalities).toEqual(["text"]);
+    expect(normalized?.outputModalities).toEqual(["image"]);
+  });
+
+  it("normalizes image-to-video category", () => {
+    const raw: FalModel = {
+      id: "kling-ai/kling-v2",
+      name: "Kling v2",
+      category: "image-to-video",
+      pricing: {
+        type: "per_generation",
+        amount: 0.6,
+      },
+    };
+
+    const normalized = normalizeFalModel(raw);
+    expect(normalized).not.toBeNull();
+    expect(normalized?.modality).toBe("video");
+    expect(normalized?.pricing).toMatchObject({ type: "video", perGeneration: 0.6 });
+    expect(normalized?.inputModalities).toEqual(["image"]);
+    expect(normalized?.outputModalities).toEqual(["video"]);
+  });
+
+  it("returns null for unsupported categories", () => {
+    const raw: FalModel = {
+      id: "some/stt-model",
+      name: "STT Model",
+      category: "speech-to-text",
+      pricing: {
+        type: "per_minute",
+        amount: 0.002,
+      },
+    };
+
+    expect(normalizeFalModel(raw)).toBeNull();
+  });
+
+  it("returns null when price is not a positive number", () => {
+    const raw: FalModel = {
+      id: "stabilityai/sdxl",
+      name: "SDXL",
+      category: "image-generation",
+      pricing: {
+        type: "per_image",
+        amount: 0,
+      },
+    };
+
+    expect(normalizeFalModel(raw)).toBeNull();
   });
 });

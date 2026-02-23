@@ -1,4 +1,4 @@
-import type { ModelEntry, Modality, OpenRouterModel } from "../types.js";
+import type { FalModel, ModelEntry, Modality, OpenRouterModel } from "../types.js";
 
 const FAMILY_PATTERNS: Array<[RegExp, string]> = [
   [/claude/, "claude"],
@@ -120,6 +120,33 @@ export function normalizeOpenRouterModel(raw: OpenRouterModel): ModelEntry | nul
   };
 }
 
+export function normalizeFalModel(raw: FalModel): ModelEntry | null {
+  const modality = mapFalCategoryToModality(raw.category);
+  if (!modality) {
+    return null;
+  }
+
+  const pricing = normalizeFalPricing(raw, modality);
+  if (!pricing) {
+    return null;
+  }
+
+  const inputModalities = falInputModalities(raw.category);
+  const outputModalities = falOutputModalities(modality);
+
+  return {
+    id: `fal::${raw.id}`,
+    source: "fal",
+    name: raw.name,
+    modality,
+    inputModalities,
+    outputModalities,
+    pricing,
+    provider: extractProvider(raw.id),
+    family: extractFamily(raw.id, raw.name),
+  };
+}
+
 function normalizeModalities(values?: string[]): string[] {
   const source = values && values.length > 0 ? values : DEFAULT_MODALITIES;
   const normalized = source
@@ -131,6 +158,84 @@ function normalizeModalities(values?: string[]): string[] {
   }
 
   return Array.from(new Set(normalized));
+}
+
+function mapFalCategoryToModality(category: string): Modality | null {
+  const normalized = category.trim().toLowerCase();
+
+  if (normalized.includes("image-generation") || normalized.includes("text-to-image")) {
+    return "image";
+  }
+
+  if (
+    normalized.includes("image-to-video") ||
+    normalized.includes("text-to-video") ||
+    normalized.includes("video-generation")
+  ) {
+    return "video";
+  }
+
+  return null;
+}
+
+function normalizeFalPricing(raw: FalModel, modality: Modality): ModelEntry["pricing"] | null {
+  const amount = raw.pricing?.amount;
+  if (typeof amount !== "number" || !Number.isFinite(amount) || amount <= 0) {
+    return null;
+  }
+
+  const priceType = raw.pricing?.type?.toLowerCase() ?? "";
+
+  if (modality === "image") {
+    if (priceType === "per_image" || priceType === "per_generation") {
+      return {
+        type: "image",
+        perImage: round(amount, 6),
+      };
+    }
+
+    return {
+      type: "image",
+      perImage: round(amount, 6),
+    };
+  }
+
+  if (modality === "video") {
+    if (priceType === "per_second") {
+      return {
+        type: "video",
+        perSecond: round(amount, 6),
+      };
+    }
+
+    return {
+      type: "video",
+      perGeneration: round(amount, 6),
+    };
+  }
+
+  return null;
+}
+
+function falInputModalities(category: string): string[] {
+  const normalized = category.trim().toLowerCase();
+  if (normalized.includes("image-to-video")) {
+    return ["image"];
+  }
+
+  return ["text"];
+}
+
+function falOutputModalities(modality: Modality): string[] {
+  if (modality === "image") {
+    return ["image"];
+  }
+
+  if (modality === "video") {
+    return ["video"];
+  }
+
+  return ["text"];
 }
 
 function parsePrice(raw: string | undefined): number {
