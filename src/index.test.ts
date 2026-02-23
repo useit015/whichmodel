@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { getBootstrapMessage } from "./index.js";
+import { program } from "./cli.js";
 
 describe("index", () => {
-  it("returns a bootstrap message", () => {
-    expect(getBootstrapMessage()).toBe("whichmodel phase 0 foundation ready");
+  it("exposes CLI program", () => {
+    expect(program.name()).toBe("whichmodel");
   });
 });

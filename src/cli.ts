@@ -1,0 +1,368 @@
+import { Command } from "commander";
+import ora from "ora";
+import { OpenRouterCatalog } from "./catalog/openrouter.js";
+import {
+  DEFAULT_RECOMMENDER_MODEL,
+  getConfig,
+  requireApiKey,
+  validateConfig,
+} from "./config.js";
+import { toJsonOutput } from "./formatter/json.js";
+import { formatTerminal } from "./formatter/terminal.js";
+import { recommend } from "./recommender/index.js";
+import {
+  ExitCode,
+  WhichModelError,
+  type Constraints,
+  type Modality,
+  type ModelEntry,
+} from "./types.js";
+
+const VALID_MODALITIES: Modality[] = [
+  "text",
+  "image",
+  "video",
+  "audio_tts",
+  "audio_stt",
+  "audio_generation",
+  "vision",
+  "embedding",
+  "multimodal",
+];
+
+const MAX_TASK_LENGTH = 2000;
+
+interface RecommendCLIOptions {
+  json?: boolean;
+  modality?: string;
+  model?: string;
+  maxPrice?: string;
+  minContext?: string;
+  minResolution?: string;
+  exclude?: string;
+  sources?: string;
+  estimate?: string;
+  verbose?: boolean;
+  color?: boolean;
+}
+
+const program = new Command();
+
+program
+  .name("whichmodel")
+  .description("Tell me what you want to build. I'll tell you which AI model to use.")
+  .version("0.1.0")
+  .argument("[task...]", "Task description")
+  .option("--json", "Output as JSON")
+  .option("-m, --modality <type>", "Force a specific modality")
+  .option("--model <id>", "Override recommender LLM")
+  .option("--max-price <number>", "Maximum price per unit in USD")
+  .option("--min-context <tokens>", "Minimum context length in tokens")
+  .option("--min-resolution <WxH>", "Minimum resolution")
+  .option("--exclude <ids>", "Exclude model IDs (comma-separated)")
+  .option("--sources <list>", "Catalog sources (comma-separated)")
+  .option("--estimate <workload>", "Workload description for cost estimation")
+  .option("-v, --verbose", "Show extra recommendation metadata")
+  .option("--no-color", "Disable colored output")
+  .action(async (taskWords: string[], options: RecommendCLIOptions) => {
+    try {
+      const task = taskWords.join(" ").trim();
+      validateTask(task);
+
+      const config = getConfig();
+      requireApiKey(config);
+
+      const validationMessage = validateConfig(config);
+      if (validationMessage?.startsWith("Warning:")) {
+        console.error(validationMessage);
+      }
+
+      const spinner = ora("Fetching model catalog...").start();
+
+      const sources = parseSources(options.sources);
+      const catalog = new OpenRouterCatalog();
+      if (!sources.includes("openrouter")) {
+        throw new WhichModelError(
+          "No supported catalog source selected for Phase 1.",
+          ExitCode.INVALID_ARGUMENTS,
+          "Use --sources openrouter"
+        );
+      }
+
+      const allModels = await catalog.fetch();
+      let models = applyExclusions(allModels, options.exclude);
+      const constraints = parseConstraints(options);
+      models = applyModelConstraints(models, constraints);
+
+      if (models.length === 0) {
+        throw new WhichModelError(
+          "No models found after applying filters.",
+          ExitCode.NO_MODELS_FOUND,
+          "Relax --max-price/--min-context filters or remove exclusions."
+        );
+      }
+
+      spinner.text = "Analyzing task and generating recommendations...";
+
+      const result = await recommend({
+        task,
+        models,
+        apiKey: config.apiKey,
+        recommenderModel: options.model ?? config.recommenderModel ?? DEFAULT_RECOMMENDER_MODEL,
+        constraints,
+        catalogSources: sources,
+      });
+
+      spinner.stop();
+
+      if (options.json) {
+        console.log(
+          JSON.stringify(toJsonOutput(task, result.recommendation, result.meta), null, 2)
+        );
+        return;
+      }
+
+      const output = formatTerminal(result.recommendation, {
+        recommenderModel: result.meta.recommenderModel,
+        cost: result.meta.recommendationCostUsd,
+        promptTokens: result.meta.promptTokens,
+        completionTokens: result.meta.completionTokens,
+        verbose: Boolean(options.verbose),
+        noColor: options.color === false || Boolean(process.env.NO_COLOR),
+      });
+      console.log(output);
+    } catch (error) {
+      handleCLIError(error);
+    }
+  });
+
+program
+  .command("compare <modelA> <modelB>")
+  .description("Compare two models head-to-head for a task (Phase 3)")
+  .requiredOption("--task <description>", "Task to compare for")
+  .action(() => {
+    console.error("compare is planned for Phase 3");
+    process.exit(ExitCode.INVALID_ARGUMENTS);
+  });
+
+program
+  .command("list")
+  .description("List models (Phase 3)")
+  .action(() => {
+    console.error("list is planned for Phase 3");
+    process.exit(ExitCode.INVALID_ARGUMENTS);
+  });
+
+program
+  .command("stats")
+  .description("Catalog stats (Phase 3)")
+  .action(() => {
+    console.error("stats is planned for Phase 3");
+    process.exit(ExitCode.INVALID_ARGUMENTS);
+  });
+
+export { program };
+
+function validateTask(task: string): void {
+  if (!task) {
+    throw new WhichModelError(
+      "Task description required.",
+      ExitCode.INVALID_ARGUMENTS,
+      "Usage: whichmodel \"summarize legal contracts\""
+    );
+  }
+
+  if (task.length > MAX_TASK_LENGTH) {
+    throw new WhichModelError(
+      `Task description too long (${task.length} characters).`,
+      ExitCode.INVALID_ARGUMENTS,
+      "Please shorten your description to under 2000 characters."
+    );
+  }
+}
+
+function parseConstraints(options: RecommendCLIOptions): Constraints {
+  const constraints: Constraints = {};
+
+  if (options.modality) {
+    if (!VALID_MODALITIES.includes(options.modality as Modality)) {
+      throw new WhichModelError(
+        `Invalid modality '${options.modality}'.`,
+        ExitCode.INVALID_ARGUMENTS,
+        `Valid modalities: ${VALID_MODALITIES.join(", ")}`
+      );
+    }
+
+    constraints.modality = options.modality as Modality;
+  }
+
+  if (options.maxPrice !== undefined) {
+    const parsedPrice = Number.parseFloat(options.maxPrice);
+    if (!Number.isFinite(parsedPrice)) {
+      throw new WhichModelError(
+        `Invalid price format '${options.maxPrice}'.`,
+        ExitCode.INVALID_ARGUMENTS,
+        "--max-price expects a number, e.g. --max-price 0.05"
+      );
+    }
+    constraints.maxPrice = parsedPrice;
+  }
+
+  if (options.minContext !== undefined) {
+    const parsedContext = Number.parseInt(options.minContext, 10);
+    if (!Number.isFinite(parsedContext)) {
+      throw new WhichModelError(
+        `Invalid min context '${options.minContext}'.`,
+        ExitCode.INVALID_ARGUMENTS,
+        "--min-context expects an integer, e.g. --min-context 200000"
+      );
+    }
+    constraints.minContext = parsedContext;
+  }
+
+  if (options.minResolution) {
+    if (!/^\d+x\d+$/i.test(options.minResolution)) {
+      throw new WhichModelError(
+        `Invalid resolution format '${options.minResolution}'.`,
+        ExitCode.INVALID_ARGUMENTS,
+        "--min-resolution expects WIDTHxHEIGHT, e.g. 1024x1024"
+      );
+    }
+
+    constraints.minResolution = options.minResolution;
+  }
+
+  if (options.exclude) {
+    constraints.exclude = options.exclude
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+
+  return constraints;
+}
+
+function applyExclusions(models: ModelEntry[], excludeArg?: string): ModelEntry[] {
+  if (!excludeArg) {
+    return models;
+  }
+
+  const patterns = excludeArg
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+
+  if (patterns.length === 0) {
+    return models;
+  }
+
+  return models.filter((model) => {
+    return !patterns.some((pattern) => {
+      if (pattern.endsWith("*")) {
+        return model.id.startsWith(pattern.slice(0, -1));
+      }
+      return model.id === pattern;
+    });
+  });
+}
+
+function applyModelConstraints(models: ModelEntry[], constraints: Constraints): ModelEntry[] {
+  return models.filter((model) => {
+    if (constraints.modality && model.modality !== constraints.modality) {
+      return false;
+    }
+
+    if (typeof constraints.minContext === "number") {
+      if ((model.contextLength ?? 0) < constraints.minContext) {
+        return false;
+      }
+    }
+
+    if (typeof constraints.maxPrice === "number") {
+      if (getPrimaryPrice(model) > constraints.maxPrice) {
+        return false;
+      }
+    }
+
+    if (constraints.minResolution && model.maxResolution) {
+      if (!isResolutionAtLeast(model.maxResolution, constraints.minResolution)) {
+        return false;
+      }
+    }
+
+    return true;
+  });
+}
+
+function getPrimaryPrice(model: ModelEntry): number {
+  switch (model.pricing.type) {
+    case "text":
+      return model.pricing.promptPer1mTokens;
+    case "image":
+      return (
+        model.pricing.perImage ??
+        model.pricing.perMegapixel ??
+        model.pricing.perStep ??
+        Number.POSITIVE_INFINITY
+      );
+    case "video":
+      return model.pricing.perSecond ?? model.pricing.perGeneration ?? Number.POSITIVE_INFINITY;
+    case "audio":
+      return (
+        model.pricing.perMinute ??
+        model.pricing.perCharacter ??
+        model.pricing.perSecond ??
+        Number.POSITIVE_INFINITY
+      );
+    case "embedding":
+      return model.pricing.per1mTokens;
+    default:
+      return Number.POSITIVE_INFINITY;
+  }
+}
+
+function isResolutionAtLeast(actual: string, minimum: string): boolean {
+  const actualParts = actual.toLowerCase().split("x");
+  const minimumParts = minimum.toLowerCase().split("x");
+  const actualW = Number(actualParts[0] ?? Number.NaN);
+  const actualH = Number(actualParts[1] ?? Number.NaN);
+  const minimumW = Number(minimumParts[0] ?? Number.NaN);
+  const minimumH = Number(minimumParts[1] ?? Number.NaN);
+  if (
+    !Number.isFinite(actualW) ||
+    !Number.isFinite(actualH) ||
+    !Number.isFinite(minimumW) ||
+    !Number.isFinite(minimumH)
+  ) {
+    return false;
+  }
+
+  return actualW >= minimumW && actualH >= minimumH;
+}
+
+function parseSources(sourcesArg?: string): string[] {
+  if (!sourcesArg) {
+    return ["openrouter"];
+  }
+
+  const sources = sourcesArg
+    .split(",")
+    .map((item) => item.trim().toLowerCase())
+    .filter(Boolean);
+
+  return sources.length > 0 ? sources : ["openrouter"];
+}
+
+function handleCLIError(error: unknown): never {
+  if (error instanceof WhichModelError) {
+    console.error(`Error: ${error.message}`);
+    if (error.recoveryHint) {
+      console.error(error.recoveryHint);
+    }
+    process.exit(error.exitCode);
+  }
+
+  const detail = error instanceof Error ? error.message : "Unknown error";
+  console.error(`Error: ${detail}`);
+  process.exit(ExitCode.GENERAL_ERROR);
+}

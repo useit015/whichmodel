@@ -1,7 +1,5 @@
-export function getBootstrapMessage(): string {
-  return "whichmodel phase 0 foundation ready";
-}
+#!/usr/bin/env node
 
-if (import.meta.url === `file://${process.argv[1]}`) {
-  console.log(getBootstrapMessage());
-}
+import { program } from "./cli.js";
+
+program.parse();
