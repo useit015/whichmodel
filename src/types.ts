@@ -602,3 +602,33 @@ export type FalResponse =
       models?: FalModel[];
       data?: FalModel[];
     };
+
+/**
+ * Raw Replicate model from API response
+ */
+export interface ReplicateModel {
+  url?: string;
+  owner: string;
+  name: string;
+  description?: string | null;
+  visibility?: "public" | "private";
+  run_count?: number;
+  latest_version?: {
+    id?: string;
+    created_at?: string;
+    openapi_schema?: unknown;
+    pricing?: unknown;
+    [key: string]: unknown;
+  } | null;
+  pricing?: unknown;
+  [key: string]: unknown;
+}
+
+/**
+ * Replicate paginated models response
+ */
+export interface ReplicateModelsResponse {
+  next?: string | null;
+  previous?: string | null;
+  results?: ReplicateModel[];
+}

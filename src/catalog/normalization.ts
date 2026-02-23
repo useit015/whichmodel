@@ -1,4 +1,10 @@
-import type { FalModel, ModelEntry, Modality, OpenRouterModel } from "../types.js";
+import type {
+  FalModel,
+  ModelEntry,
+  Modality,
+  OpenRouterModel,
+  ReplicateModel,
+} from "../types.js";
 
 const FAMILY_PATTERNS: Array<[RegExp, string]> = [
   [/claude/, "claude"],
@@ -21,6 +27,11 @@ const FAMILY_PATTERNS: Array<[RegExp, string]> = [
 ];
 
 const DEFAULT_MODALITIES = ["text"];
+const IMAGE_KEYWORDS = ["image", "photo", "picture", "mask", "jpg", "jpeg", "png", "webp"];
+const VIDEO_KEYWORDS = ["video", "clip", "animation", "movie", "mp4", "webm", "gif"];
+const AUDIO_KEYWORDS = ["audio", "speech", "voice", "music", "wav", "mp3", "flac", "transcript"];
+const EMBEDDING_KEYWORDS = ["embedding", "embeddings", "vector", "vectors"];
+const TEXT_HINT_KEYWORDS = ["text", "prompt", "instruction", "caption", "query", "message"];
 
 export function classifyModality(input: string[], output: string[]): Modality {
   const normalizedInput = normalizeModalities(input);
@@ -147,6 +158,45 @@ export function normalizeFalModel(raw: FalModel): ModelEntry | null {
   };
 }
 
+export function normalizeReplicateModel(raw: ReplicateModel): ModelEntry | null {
+  const modelKey = toReplicateModelKey(raw);
+  if (!modelKey) {
+    return null;
+  }
+
+  const openApiSchema = extractReplicateOpenApiSchema(raw);
+  let inputModalities = detectReplicateInputModalities(openApiSchema);
+  let outputModalities = detectReplicateOutputModalities(openApiSchema, raw);
+  let modality = classifyModality(inputModalities, outputModalities);
+
+  if (modality === "text") {
+    const inferred = inferReplicateModalityFromMetadata(raw);
+    if (inferred !== "text") {
+      const fallback = fallbackModalitiesForModality(inferred);
+      inputModalities = fallback.inputModalities;
+      outputModalities = fallback.outputModalities;
+      modality = inferred;
+    }
+  }
+
+  const pricing = normalizeReplicatePricing(raw, modality);
+  if (!pricing) {
+    return null;
+  }
+
+  return {
+    id: `replicate::${modelKey}`,
+    source: "replicate",
+    name: raw.name,
+    modality,
+    inputModalities,
+    outputModalities,
+    pricing,
+    provider: extractProvider(modelKey),
+    family: extractFamily(modelKey, raw.name),
+  };
+}
+
 function normalizeModalities(values?: string[]): string[] {
   const source = values && values.length > 0 ? values : DEFAULT_MODALITIES;
   const normalized = source
@@ -158,6 +208,436 @@ function normalizeModalities(values?: string[]): string[] {
   }
 
   return Array.from(new Set(normalized));
+}
+
+function normalizeReplicatePricing(
+  raw: ReplicateModel,
+  modality: Modality
+): ModelEntry["pricing"] | null {
+  const pricingSources = [raw.pricing, raw.latest_version?.pricing];
+
+  if (modality === "text") {
+    const promptEntry =
+      extractFirstNumericByKey(pricingSources, [
+        "prompt_per_1m",
+        "input_per_1m",
+        "prompt",
+        "input",
+      ]) ?? extractFirstNumericByKey(pricingSources, ["per_token", "token"]);
+    const completionEntry =
+      extractFirstNumericByKey(pricingSources, [
+        "completion_per_1m",
+        "output_per_1m",
+        "completion",
+        "output",
+      ]) ??
+      extractFirstNumericByKey(pricingSources, ["per_token", "token"]) ??
+      promptEntry;
+    const promptPer1mTokens = normalizeTokenPricePer1m(promptEntry);
+    const completionPer1mTokens = normalizeTokenPricePer1m(completionEntry);
+    if (
+      typeof promptPer1mTokens !== "number" ||
+      typeof completionPer1mTokens !== "number"
+    ) {
+      return null;
+    }
+
+    return {
+      type: "text",
+      promptPer1mTokens,
+      completionPer1mTokens,
+    };
+  }
+
+  if (modality === "embedding") {
+    const embeddingEntry =
+      extractFirstNumericByKey(pricingSources, ["embedding_per_1m", "per_1m"]) ??
+      extractFirstNumericByKey(pricingSources, ["embedding", "per_token", "token"]);
+    const per1mTokens = normalizeTokenPricePer1m(embeddingEntry);
+    if (typeof per1mTokens !== "number") {
+      return null;
+    }
+
+    return {
+      type: "embedding",
+      per1mTokens,
+    };
+  }
+
+  if (modality === "image") {
+    const perImage = normalizeMoneyAmount(
+      extractFirstNumericByKey(pricingSources, [
+        "per_image",
+        "image",
+        "per_generation",
+        "generation",
+        "per_run",
+        "run",
+        "predict",
+      ])
+    );
+
+    return perImage !== undefined ? { type: "image", perImage } : { type: "image" };
+  }
+
+  if (modality === "video") {
+    const perSecond = normalizeMoneyAmount(
+      extractFirstNumericByKey(pricingSources, ["per_second", "second"])
+    );
+    const perGeneration = normalizeMoneyAmount(
+      extractFirstNumericByKey(pricingSources, [
+        "per_generation",
+        "generation",
+        "per_run",
+        "run",
+        "predict",
+      ])
+    );
+
+    if (perSecond !== undefined) {
+      return { type: "video", perSecond };
+    }
+
+    return perGeneration !== undefined
+      ? { type: "video", perGeneration }
+      : { type: "video" };
+  }
+
+  if (
+    modality === "audio_tts" ||
+    modality === "audio_stt" ||
+    modality === "audio_generation"
+  ) {
+    const perMinute = normalizeMoneyAmount(
+      extractFirstNumericByKey(pricingSources, ["per_minute", "minute"])
+    );
+    const perCharacter = normalizeMoneyAmount(
+      extractFirstNumericByKey(pricingSources, ["per_character", "character"])
+    );
+    const perSecond = normalizeMoneyAmount(
+      extractFirstNumericByKey(pricingSources, ["per_second", "second"])
+    );
+
+    if (perMinute !== undefined) {
+      return { type: "audio", perMinute };
+    }
+
+    if (perCharacter !== undefined) {
+      return { type: "audio", perCharacter };
+    }
+
+    return perSecond !== undefined ? { type: "audio", perSecond } : { type: "audio" };
+  }
+
+  return null;
+}
+
+function toReplicateModelKey(raw: ReplicateModel): string | null {
+  const owner = typeof raw.owner === "string" ? raw.owner.trim() : "";
+  const name = typeof raw.name === "string" ? raw.name.trim() : "";
+  if (owner && name) {
+    return `${owner}/${name}`;
+  }
+
+  if (typeof raw.url === "string" && raw.url.trim()) {
+    try {
+      const parsed = new URL(raw.url);
+      const path = parsed.pathname.replace(/^\/+/, "");
+      return path || null;
+    } catch {
+      return raw.url.replace(/^https?:\/\/[^/]+\//, "") || null;
+    }
+  }
+
+  return null;
+}
+
+function extractReplicateOpenApiSchema(
+  raw: ReplicateModel
+): Record<string, unknown> | null {
+  const candidate = raw.latest_version?.openapi_schema;
+  return isRecord(candidate) ? candidate : null;
+}
+
+function detectReplicateInputModalities(openApiSchema: Record<string, unknown> | null): string[] {
+  const inputSchema = extractReplicateSchemaNode(openApiSchema, "Input");
+  if (!inputSchema) {
+    return ["text"];
+  }
+
+  const text = collectSchemaText(inputSchema);
+  const modalities = new Set<string>();
+  if (hasAnyKeyword(text, IMAGE_KEYWORDS)) {
+    modalities.add("image");
+  }
+  if (hasAnyKeyword(text, VIDEO_KEYWORDS)) {
+    modalities.add("video");
+  }
+  if (hasAnyKeyword(text, AUDIO_KEYWORDS)) {
+    modalities.add("audio");
+  }
+  if (hasAnyKeyword(text, TEXT_HINT_KEYWORDS) || modalities.size === 0) {
+    modalities.add("text");
+  }
+
+  return Array.from(modalities);
+}
+
+function detectReplicateOutputModalities(
+  openApiSchema: Record<string, unknown> | null,
+  raw: ReplicateModel
+): string[] {
+  const outputSchema = extractReplicateSchemaNode(openApiSchema, "Output");
+  if (!outputSchema) {
+    return fallbackModalitiesForModality(inferReplicateModalityFromMetadata(raw)).outputModalities;
+  }
+
+  const text = collectSchemaText(outputSchema);
+  const outputs = new Set<string>();
+
+  if (hasAnyKeyword(text, EMBEDDING_KEYWORDS) || isNumericVectorArray(outputSchema)) {
+    outputs.add("embedding");
+  }
+  if (hasAnyKeyword(text, IMAGE_KEYWORDS)) {
+    outputs.add("image");
+  }
+  if (hasAnyKeyword(text, VIDEO_KEYWORDS)) {
+    outputs.add("video");
+  }
+  if (hasAnyKeyword(text, AUDIO_KEYWORDS)) {
+    outputs.add("audio");
+  }
+
+  if (outputs.size === 0 && hasUriLikeFormat(outputSchema)) {
+    const inferred = inferReplicateModalityFromMetadata(raw);
+    if (inferred === "video") {
+      outputs.add("video");
+    } else if (
+      inferred === "audio_stt" ||
+      inferred === "audio_tts" ||
+      inferred === "audio_generation"
+    ) {
+      outputs.add(inferred === "audio_stt" ? "text" : "audio");
+    } else if (inferred === "embedding") {
+      outputs.add("embedding");
+    } else {
+      outputs.add("image");
+    }
+  }
+
+  if (outputs.size === 0) {
+    outputs.add("text");
+  }
+
+  return Array.from(outputs);
+}
+
+function inferReplicateModalityFromMetadata(raw: ReplicateModel): Modality {
+  const combined = `${raw.owner ?? ""}/${raw.name ?? ""} ${raw.description ?? ""}`.toLowerCase();
+
+  if (hasAnyKeyword(combined, EMBEDDING_KEYWORDS)) {
+    return "embedding";
+  }
+  if (/(transcrib|speech[\s-]?to[\s-]?text|stt|whisper|caption)/.test(combined)) {
+    return "audio_stt";
+  }
+  if (/(text[\s-]?to[\s-]?speech|tts|voiceover|voice synth|speech synth)/.test(combined)) {
+    return "audio_tts";
+  }
+  if (/(music|sound effect|audio generation|text[\s-]?to[\s-]?audio)/.test(combined)) {
+    return "audio_generation";
+  }
+  if (/(vision|ocr|image understanding|analy[sz]e image|vqa)/.test(combined)) {
+    return "vision";
+  }
+  if (hasAnyKeyword(combined, VIDEO_KEYWORDS)) {
+    return "video";
+  }
+  if (hasAnyKeyword(combined, IMAGE_KEYWORDS)) {
+    return "image";
+  }
+
+  return "text";
+}
+
+function fallbackModalitiesForModality(modality: Modality): {
+  inputModalities: string[];
+  outputModalities: string[];
+} {
+  switch (modality) {
+    case "image":
+      return { inputModalities: ["text"], outputModalities: ["image"] };
+    case "video":
+      return { inputModalities: ["text"], outputModalities: ["video"] };
+    case "audio_stt":
+      return { inputModalities: ["audio"], outputModalities: ["text"] };
+    case "audio_tts":
+    case "audio_generation":
+      return { inputModalities: ["text"], outputModalities: ["audio"] };
+    case "vision":
+      return { inputModalities: ["image"], outputModalities: ["text"] };
+    case "embedding":
+      return { inputModalities: ["text"], outputModalities: ["embedding"] };
+    case "multimodal":
+      return { inputModalities: ["text", "image"], outputModalities: ["text", "image"] };
+    case "text":
+    default:
+      return { inputModalities: ["text"], outputModalities: ["text"] };
+  }
+}
+
+function extractReplicateSchemaNode(
+  openApiSchema: Record<string, unknown> | null,
+  schemaName: "Input" | "Output"
+): Record<string, unknown> | null {
+  if (!openApiSchema) {
+    return null;
+  }
+
+  const components = openApiSchema.components;
+  if (!isRecord(components)) {
+    return null;
+  }
+
+  const schemas = components.schemas;
+  if (!isRecord(schemas)) {
+    return null;
+  }
+
+  const node = schemas[schemaName];
+  return isRecord(node) ? node : null;
+}
+
+function collectSchemaText(value: unknown): string {
+  try {
+    return JSON.stringify(value).toLowerCase();
+  } catch {
+    return "";
+  }
+}
+
+function hasAnyKeyword(text: string, keywords: string[]): boolean {
+  return keywords.some((keyword) => text.includes(keyword));
+}
+
+function hasUriLikeFormat(schema: Record<string, unknown>): boolean {
+  const text = collectSchemaText(schema);
+  return text.includes("\"format\":\"uri\"") || text.includes("\"format\":\"url\"");
+}
+
+function isNumericVectorArray(schema: Record<string, unknown>): boolean {
+  const type = typeof schema.type === "string" ? schema.type.toLowerCase() : "";
+  if (type !== "array") {
+    return false;
+  }
+
+  const items = schema.items;
+  if (!isRecord(items)) {
+    return false;
+  }
+
+  const itemType = typeof items.type === "string" ? items.type.toLowerCase() : "";
+  return itemType === "number" || itemType === "integer";
+}
+
+interface NumericEntry {
+  key: string;
+  value: number;
+}
+
+function extractFirstNumericByKey(
+  sources: Array<unknown>,
+  keyHints: string[]
+): NumericEntry | undefined {
+  const normalizedHints = keyHints.map((hint) => hint.toLowerCase());
+  const allEntries = sources.flatMap((source) => collectNumericEntries(source));
+
+  return allEntries.find((entry) =>
+    normalizedHints.some((hint) => entry.key.includes(hint))
+  );
+}
+
+function collectNumericEntries(
+  value: unknown,
+  parentKey = "",
+  depth = 0
+): NumericEntry[] {
+  if (depth > 5 || value === null || value === undefined) {
+    return [];
+  }
+
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return [{ key: parentKey.toLowerCase(), value }];
+  }
+
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (/^-?\d+(\.\d+)?$/.test(trimmed)) {
+      const parsed = Number.parseFloat(trimmed);
+      if (Number.isFinite(parsed)) {
+        return [{ key: parentKey.toLowerCase(), value: parsed }];
+      }
+    }
+    return [];
+  }
+
+  if (Array.isArray(value)) {
+    return value.flatMap((item, index) =>
+      collectNumericEntries(item, `${parentKey}[${index}]`, depth + 1)
+    );
+  }
+
+  if (!isRecord(value)) {
+    return [];
+  }
+
+  return Object.entries(value).flatMap(([key, nested]) =>
+    collectNumericEntries(
+      nested,
+      parentKey ? `${parentKey}.${key}` : key,
+      depth + 1
+    )
+  );
+}
+
+function normalizeTokenPricePer1m(entry: NumericEntry | undefined): number | undefined {
+  if (!entry || !Number.isFinite(entry.value) || entry.value <= 0) {
+    return undefined;
+  }
+
+  const key = entry.key;
+  let value = entry.value;
+  if (key.includes("cent")) {
+    value = value / 100;
+  }
+
+  if (key.includes("1m")) {
+    return round(value, 6);
+  }
+  if (key.includes("1k")) {
+    return round(value * 1000, 6);
+  }
+  if (key.includes("token")) {
+    return round(value * 1_000_000, 6);
+  }
+  if (value < 0.01) {
+    return round(value * 1_000_000, 6);
+  }
+
+  return round(value, 6);
+}
+
+function normalizeMoneyAmount(entry: NumericEntry | undefined): number | undefined {
+  if (!entry || !Number.isFinite(entry.value) || entry.value <= 0) {
+    return undefined;
+  }
+
+  const cents = entry.key.includes("cent");
+  return round(cents ? entry.value / 100 : entry.value, 6);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 export function classifyFalCategory(category: string): Modality | null {

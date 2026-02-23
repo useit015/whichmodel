@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { FalModel, OpenRouterModel } from "../types.js";
+import type { FalModel, OpenRouterModel, ReplicateModel } from "../types.js";
 import {
   classifyFalCategory,
   classifyModality,
@@ -7,6 +7,7 @@ import {
   extractProvider,
   normalizeFalModel,
   normalizeOpenRouterModel,
+  normalizeReplicateModel,
 } from "./normalization.js";
 
 describe("classifyModality", () => {
@@ -210,6 +211,127 @@ describe("normalizeFalModel", () => {
     expect(normalized?.pricing).toMatchObject({ type: "audio", perSecond: 0.01 });
     expect(normalized?.inputModalities).toEqual(["text"]);
     expect(normalized?.outputModalities).toEqual(["audio"]);
+  });
+});
+
+describe("normalizeReplicateModel", () => {
+  it("normalizes schema-based image models with per-image pricing", () => {
+    const raw: ReplicateModel = {
+      owner: "black-forest-labs",
+      name: "flux-schnell",
+      description: "Fast image generation model",
+      pricing: {
+        per_image: 0.02,
+      },
+      latest_version: {
+        openapi_schema: {
+          components: {
+            schemas: {
+              Input: {
+                type: "object",
+                properties: {
+                  prompt: { type: "string", description: "Generation prompt" },
+                },
+              },
+              Output: {
+                type: "string",
+                format: "uri",
+                description: "Generated image URL",
+              },
+            },
+          },
+        },
+      },
+    };
+
+    const normalized = normalizeReplicateModel(raw);
+    expect(normalized).not.toBeNull();
+    expect(normalized?.id).toBe("replicate::black-forest-labs/flux-schnell");
+    expect(normalized?.modality).toBe("image");
+    expect(normalized?.pricing).toMatchObject({ type: "image", perImage: 0.02 });
+  });
+
+  it("infers audio stt modality from metadata when schema is missing", () => {
+    const raw: ReplicateModel = {
+      owner: "openai",
+      name: "whisper",
+      description: "Speech-to-text transcription model",
+      pricing: {
+        per_minute: 0.006,
+      },
+    };
+
+    const normalized = normalizeReplicateModel(raw);
+    expect(normalized).not.toBeNull();
+    expect(normalized?.modality).toBe("audio_stt");
+    expect(normalized?.inputModalities).toEqual(["audio"]);
+    expect(normalized?.outputModalities).toEqual(["text"]);
+    expect(normalized?.pricing).toMatchObject({ type: "audio", perMinute: 0.006 });
+  });
+
+  it("normalizes text token pricing to per-1m rates", () => {
+    const raw: ReplicateModel = {
+      owner: "meta",
+      name: "llama-3.3",
+      description: "General-purpose text generation model",
+      pricing: {
+        input_per_token: 0.000001,
+        output_per_token: 0.000002,
+      },
+      latest_version: {
+        openapi_schema: {
+          components: {
+            schemas: {
+              Input: {
+                type: "object",
+                properties: {
+                  prompt: { type: "string" },
+                },
+              },
+              Output: {
+                type: "string",
+              },
+            },
+          },
+        },
+      },
+    };
+
+    const normalized = normalizeReplicateModel(raw);
+    expect(normalized).not.toBeNull();
+    expect(normalized?.modality).toBe("text");
+    expect(normalized?.pricing).toMatchObject({
+      type: "text",
+      promptPer1mTokens: 1,
+      completionPer1mTokens: 2,
+    });
+  });
+
+  it("returns null for text models when pricing cannot be inferred", () => {
+    const raw: ReplicateModel = {
+      owner: "meta",
+      name: "llama-unpriced",
+      description: "Text model",
+      latest_version: {
+        openapi_schema: {
+          components: {
+            schemas: {
+              Input: {
+                type: "object",
+                properties: {
+                  prompt: { type: "string" },
+                },
+              },
+              Output: {
+                type: "string",
+              },
+            },
+          },
+        },
+      },
+    };
+
+    expect(normalizeReplicateModel(raw)).toBeNull();
   });
 });
 
