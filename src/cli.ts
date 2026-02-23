@@ -1,5 +1,6 @@
 import { Command } from "commander";
 import ora from "ora";
+import { FalCatalog } from "./catalog/fal.js";
 import { OpenRouterCatalog } from "./catalog/openrouter.js";
 import {
   DEFAULT_RECOMMENDER_MODEL,
@@ -14,6 +15,7 @@ import {
   ExitCode,
   WhichModelError,
   type Constraints,
+  type Config,
   type Modality,
   type ModelEntry,
 } from "./types.js";
@@ -31,9 +33,9 @@ const VALID_MODALITIES: Modality[] = [
 ];
 
 const VALID_SOURCES = ["openrouter", "fal", "replicate", "elevenlabs", "together"] as const;
-const PHASE1_SUPPORTED_SOURCES = ["openrouter"] as const;
+const PHASE2_SUPPORTED_SOURCES = ["openrouter", "fal"] as const;
 const VALID_SOURCE_SET = new Set<string>(VALID_SOURCES);
-const PHASE1_SUPPORTED_SOURCE_SET = new Set<string>(PHASE1_SUPPORTED_SOURCES);
+const PHASE2_SUPPORTED_SOURCE_SET = new Set<string>(PHASE2_SUPPORTED_SOURCES);
 const MAX_TASK_LENGTH = 2000;
 
 interface RecommendCLIOptions {
@@ -85,9 +87,7 @@ program
       }
 
       const spinner = ora("Fetching model catalog...").start();
-      const catalog = new OpenRouterCatalog();
-
-      const allModels = await catalog.fetch();
+      const allModels = await fetchCatalogModels(sources, config);
       let models = applyExclusions(allModels, options.exclude);
       models = applyModelConstraints(models, constraints);
 
@@ -394,17 +394,66 @@ function parseSources(sourcesArg?: string): string[] {
 }
 
 function validateSupportedSources(sources: string[]): void {
-  const unsupported = sources.filter((source) => !PHASE1_SUPPORTED_SOURCE_SET.has(source));
+  const unsupported = sources.filter((source) => !PHASE2_SUPPORTED_SOURCE_SET.has(source));
 
   if (unsupported.length === 0) {
     return;
   }
 
   throw new WhichModelError(
-    `Source(s) not supported in Phase 1: ${unsupported.join(", ")}.`,
+    `Source(s) not supported in Phase 2: ${unsupported.join(", ")}.`,
     ExitCode.INVALID_ARGUMENTS,
-    `Use --sources ${PHASE1_SUPPORTED_SOURCES.join(",")}`
+    `Use --sources ${PHASE2_SUPPORTED_SOURCES.join(",")}`
   );
+}
+
+async function fetchCatalogModels(sources: string[], config: Config): Promise<ModelEntry[]> {
+  const merged: ModelEntry[] = [];
+
+  for (const source of sources) {
+    if (source === "openrouter") {
+      const openrouterModels = await new OpenRouterCatalog().fetch();
+      merged.push(...openrouterModels);
+      continue;
+    }
+
+    if (source === "fal") {
+      if (!config.falApiKey) {
+        throw new WhichModelError(
+          "FAL_API_KEY is not set.",
+          ExitCode.NO_API_KEY,
+          "Set FAL_API_KEY and retry, or use --sources openrouter."
+        );
+      }
+
+      const falModels = await new FalCatalog({ apiKey: config.falApiKey }).fetch();
+      merged.push(...falModels);
+      continue;
+    }
+
+    throw new WhichModelError(
+      `Unsupported source '${source}'.`,
+      ExitCode.INVALID_ARGUMENTS,
+      `Use --sources ${PHASE2_SUPPORTED_SOURCES.join(",")}`
+    );
+  }
+
+  return dedupeById(merged);
+}
+
+function dedupeById(models: ModelEntry[]): ModelEntry[] {
+  const seen = new Set<string>();
+  const deduped: ModelEntry[] = [];
+
+  for (const model of models) {
+    if (seen.has(model.id)) {
+      continue;
+    }
+    deduped.push(model);
+    seen.add(model.id);
+  }
+
+  return deduped;
 }
 
 function handleCLIError(error: unknown): never {

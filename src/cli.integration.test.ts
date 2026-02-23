@@ -100,10 +100,21 @@ describe("CLI integration error handling", () => {
   });
 
   it("exits with code 2 for phase-unsupported sources", () => {
-    const result = runCLI(["task", "--sources", "fal"]);
+    const result = runCLI(["task", "--sources", "replicate"]);
 
     expect(result.status).toBe(2);
-    expect(result.stderr).toContain("Error: Source(s) not supported in Phase 1: fal.");
-    expect(result.stderr).toContain("Use --sources openrouter");
+    expect(result.stderr).toContain("Error: Source(s) not supported in Phase 2: replicate.");
+    expect(result.stderr).toContain("Use --sources openrouter,fal");
+  });
+
+  it("exits with code 3 when fal source is selected but FAL_API_KEY is missing", () => {
+    const result = runCLI(["task", "--sources", "fal"], {
+      OPENROUTER_API_KEY: "sk-or-test",
+      FAL_API_KEY: undefined,
+    });
+
+    expect(result.status).toBe(3);
+    expect(result.stderr).toContain("Error: FAL_API_KEY is not set.");
+    expect(result.stderr).toContain("Set FAL_API_KEY and retry, or use --sources openrouter.");
   });
 });

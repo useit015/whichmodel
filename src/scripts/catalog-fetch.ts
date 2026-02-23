@@ -1,11 +1,38 @@
+import { FalCatalog } from "../catalog/fal.js";
 import { OpenRouterCatalog } from "../catalog/openrouter.js";
-import { WhichModelError } from "../types.js";
+import { getConfig } from "../config.js";
+import { ExitCode, WhichModelError } from "../types.js";
 
 async function main(): Promise<void> {
-  const catalog = new OpenRouterCatalog();
-  const models = await catalog.fetch();
+  const sources = parseSourcesArg(process.argv.slice(2));
+  const config = getConfig();
 
-  console.log(`${models.length} models fetched from OpenRouter`);
+  const modelsBySource = await Promise.all(
+    sources.map(async (source) => {
+      if (source === "openrouter") {
+        const models = await new OpenRouterCatalog().fetch();
+        return { source, models };
+      }
+
+      if (source === "fal") {
+        const models = await new FalCatalog({ apiKey: config.falApiKey }).fetch();
+        return { source, models };
+      }
+
+      throw new WhichModelError(
+        `Unsupported source '${source}'.`,
+        ExitCode.INVALID_ARGUMENTS,
+        "Use --sources openrouter,fal"
+      );
+    })
+  );
+
+  const models = modelsBySource.flatMap(({ models: sourceModels }) => sourceModels);
+  const sourceSummary = modelsBySource
+    .map(({ source, models: sourceModels }) => `${source}=${sourceModels.length}`)
+    .join(", ");
+
+  console.log(`${models.length} models fetched (${sourceSummary})`);
 
   const counts = new Map<string, number>();
   for (const model of models) {
@@ -16,6 +43,29 @@ async function main(): Promise<void> {
   for (const [modality, count] of byModality) {
     console.log(`- ${modality}: ${count}`);
   }
+}
+
+function parseSourcesArg(args: string[]): string[] {
+  const sourceFlagIndex = args.findIndex((arg) => arg === "--sources");
+  if (sourceFlagIndex < 0) {
+    return ["openrouter"];
+  }
+
+  const rawValue = args[sourceFlagIndex + 1];
+  if (!rawValue) {
+    throw new WhichModelError(
+      "Missing value for --sources.",
+      ExitCode.INVALID_ARGUMENTS,
+      "Example: --sources openrouter,fal"
+    );
+  }
+
+  const sources = rawValue
+    .split(",")
+    .map((item) => item.trim().toLowerCase())
+    .filter(Boolean);
+
+  return sources.length > 0 ? sources : ["openrouter"];
 }
 
 void main().catch((error: unknown) => {
