@@ -48,7 +48,10 @@ export async function requestRecommendationCompletion(
           throw new WhichModelError(
             "Invalid OpenRouter API key.",
             ExitCode.LLM_FAILED,
-            "Check your key at https://openrouter.ai/keys"
+            [
+              "Please check that your key is valid, active, and starts with sk-or-.",
+              "Manage keys at https://openrouter.ai/keys",
+            ].join("\n")
           );
         }
 
@@ -56,8 +59,16 @@ export async function requestRecommendationCompletion(
           throw new WhichModelError(
             "Insufficient credits in your OpenRouter account.",
             ExitCode.LLM_FAILED,
-            "Add credits at https://openrouter.ai/credits"
+            [
+              "Add credits at https://openrouter.ai/credits",
+              "The default recommender model is low-cost, but requires a positive balance.",
+            ].join("\n")
           );
+        }
+
+        if (response.status === 429 && attempt < maxAttempts - 1) {
+          await wait(retryDelayForAttempt(retryDelaysMs, attempt));
+          continue;
         }
 
         if (shouldRetryStatus(response.status) && attempt < maxAttempts - 1) {
@@ -110,6 +121,14 @@ export async function requestRecommendationCompletion(
 
   if (lastError instanceof WhichModelError) {
     throw lastError;
+  }
+
+  if (isAbortError(lastError)) {
+    throw new WhichModelError(
+      "OpenRouter LLM request timed out.",
+      ExitCode.LLM_FAILED,
+      "Retry in a few minutes. If this continues, try a smaller task description."
+    );
   }
 
   const detail = lastError instanceof Error ? lastError.message : "Unknown LLM error";
@@ -177,16 +196,20 @@ function isRetryableError(error: unknown): boolean {
     return isRetryableCode(error.exitCode);
   }
 
-  if (
-    typeof error === "object" &&
-    error !== null &&
-    "name" in error &&
-    (error as { name?: string }).name === "AbortError"
-  ) {
+  if (isAbortError(error)) {
     return true;
   }
 
   return error instanceof TypeError;
+}
+
+function isAbortError(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "name" in error &&
+    (error as { name?: string }).name === "AbortError"
+  );
 }
 
 function retryDelayForAttempt(delays: number[], attempt: number): number {

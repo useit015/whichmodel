@@ -30,6 +30,10 @@ const VALID_MODALITIES: Modality[] = [
   "multimodal",
 ];
 
+const VALID_SOURCES = ["openrouter", "fal", "replicate", "elevenlabs", "together"] as const;
+const PHASE1_SUPPORTED_SOURCES = ["openrouter"] as const;
+const VALID_SOURCE_SET = new Set<string>(VALID_SOURCES);
+const PHASE1_SUPPORTED_SOURCE_SET = new Set<string>(PHASE1_SUPPORTED_SOURCES);
 const MAX_TASK_LENGTH = 2000;
 
 interface RecommendCLIOptions {
@@ -68,6 +72,9 @@ program
     try {
       const task = taskWords.join(" ").trim();
       validateTask(task);
+      const constraints = parseConstraints(options);
+      const sources = parseSources(options.sources);
+      validateSupportedSources(sources);
 
       const config = getConfig();
       requireApiKey(config);
@@ -78,20 +85,10 @@ program
       }
 
       const spinner = ora("Fetching model catalog...").start();
-
-      const sources = parseSources(options.sources);
       const catalog = new OpenRouterCatalog();
-      if (!sources.includes("openrouter")) {
-        throw new WhichModelError(
-          "No supported catalog source selected for Phase 1.",
-          ExitCode.INVALID_ARGUMENTS,
-          "Use --sources openrouter"
-        );
-      }
 
       const allModels = await catalog.fetch();
       let models = applyExclusions(allModels, options.exclude);
-      const constraints = parseConstraints(options);
       models = applyModelConstraints(models, constraints);
 
       if (models.length === 0) {
@@ -162,13 +159,22 @@ program
   });
 
 export { program };
+export { validateTask, parseConstraints, parseSources, validateSupportedSources };
 
 function validateTask(task: string): void {
   if (!task) {
     throw new WhichModelError(
       "Task description required.",
       ExitCode.INVALID_ARGUMENTS,
-      "Usage: whichmodel \"summarize legal contracts\""
+      [
+        "Usage: whichmodel <task>",
+        "",
+        "Examples:",
+        '  whichmodel "summarize legal contracts"',
+        '  whichmodel "generate product photos"',
+        "",
+        "Run 'whichmodel --help' for more information.",
+      ].join("\n")
     );
   }
 
@@ -176,7 +182,10 @@ function validateTask(task: string): void {
     throw new WhichModelError(
       `Task description too long (${task.length} characters).`,
       ExitCode.INVALID_ARGUMENTS,
-      "Please shorten your description to under 2000 characters."
+      [
+        "Please shorten your description to under 2000 characters.",
+        "Focus on the core requirements rather than detailed context.",
+      ].join("\n")
     );
   }
 }
@@ -189,7 +198,12 @@ function parseConstraints(options: RecommendCLIOptions): Constraints {
       throw new WhichModelError(
         `Invalid modality '${options.modality}'.`,
         ExitCode.INVALID_ARGUMENTS,
-        `Valid modalities: ${VALID_MODALITIES.join(", ")}`
+        [
+          "Valid modalities:",
+          ...VALID_MODALITIES.map((modality) => `  ${modality}`),
+          "",
+          'Example: whichmodel "generate images" --modality image',
+        ].join("\n")
       );
     }
 
@@ -197,24 +211,35 @@ function parseConstraints(options: RecommendCLIOptions): Constraints {
   }
 
   if (options.maxPrice !== undefined) {
-    const parsedPrice = Number.parseFloat(options.maxPrice);
-    if (!Number.isFinite(parsedPrice)) {
+    const parsedPrice = Number(options.maxPrice);
+    if (!Number.isFinite(parsedPrice) || parsedPrice < 0) {
       throw new WhichModelError(
         `Invalid price format '${options.maxPrice}'.`,
         ExitCode.INVALID_ARGUMENTS,
-        "--max-price expects a number, e.g. --max-price 0.05"
+        [
+          "--max-price expects a non-negative number in USD.",
+          "",
+          "Example: --max-price 0.05",
+        ].join("\n")
       );
     }
     constraints.maxPrice = parsedPrice;
   }
 
   if (options.minContext !== undefined) {
-    const parsedContext = Number.parseInt(options.minContext, 10);
-    if (!Number.isFinite(parsedContext)) {
+    if (!/^\d+$/.test(options.minContext)) {
       throw new WhichModelError(
         `Invalid min context '${options.minContext}'.`,
         ExitCode.INVALID_ARGUMENTS,
-        "--min-context expects an integer, e.g. --min-context 200000"
+        "--min-context expects a positive integer, e.g. --min-context 200000"
+      );
+    }
+    const parsedContext = Number.parseInt(options.minContext, 10);
+    if (!Number.isFinite(parsedContext) || parsedContext <= 0) {
+      throw new WhichModelError(
+        `Invalid min context '${options.minContext}'.`,
+        ExitCode.INVALID_ARGUMENTS,
+        "--min-context expects a positive integer, e.g. --min-context 200000"
       );
     }
     constraints.minContext = parsedContext;
@@ -225,7 +250,13 @@ function parseConstraints(options: RecommendCLIOptions): Constraints {
       throw new WhichModelError(
         `Invalid resolution format '${options.minResolution}'.`,
         ExitCode.INVALID_ARGUMENTS,
-        "--min-resolution expects WIDTHxHEIGHT, e.g. 1024x1024"
+        [
+          "--min-resolution expects WIDTHxHEIGHT format.",
+          "",
+          "Examples:",
+          "  --min-resolution 1024x1024",
+          "  --min-resolution 1920x1080",
+        ].join("\n")
       );
     }
 
@@ -350,7 +381,30 @@ function parseSources(sourcesArg?: string): string[] {
     .map((item) => item.trim().toLowerCase())
     .filter(Boolean);
 
+  const invalidSources = sources.filter((source) => !VALID_SOURCE_SET.has(source));
+  if (invalidSources.length > 0) {
+    throw new WhichModelError(
+      `Invalid source value(s): ${invalidSources.join(", ")}.`,
+      ExitCode.INVALID_ARGUMENTS,
+      `Valid sources: ${VALID_SOURCES.join(", ")}`
+    );
+  }
+
   return sources.length > 0 ? sources : ["openrouter"];
+}
+
+function validateSupportedSources(sources: string[]): void {
+  const unsupported = sources.filter((source) => !PHASE1_SUPPORTED_SOURCE_SET.has(source));
+
+  if (unsupported.length === 0) {
+    return;
+  }
+
+  throw new WhichModelError(
+    `Source(s) not supported in Phase 1: ${unsupported.join(", ")}.`,
+    ExitCode.INVALID_ARGUMENTS,
+    `Use --sources ${PHASE1_SUPPORTED_SOURCES.join(",")}`
+  );
 }
 
 function handleCLIError(error: unknown): never {

@@ -118,16 +118,46 @@ export class OpenRouterCatalog implements CatalogSource {
   }
 
   private buildHttpError(status: number): WhichModelError {
+    if (status >= 500) {
+      return new WhichModelError(
+        `Unable to fetch model catalog (OpenRouter returned ${status}).`,
+        ExitCode.NETWORK_ERROR,
+        [
+          "OpenRouter may be experiencing temporary issues.",
+          "Retry in a few minutes and check https://status.openrouter.ai.",
+        ].join("\n")
+      );
+    }
+
+    if (status === 429) {
+      return new WhichModelError(
+        "OpenRouter rate limit exceeded while fetching the model catalog.",
+        ExitCode.NETWORK_ERROR,
+        "Wait a minute and retry."
+      );
+    }
+
     return new WhichModelError(
       `Unable to fetch model catalog (OpenRouter returned ${status}).`,
       ExitCode.NETWORK_ERROR,
-      "Check https://status.openrouter.ai and retry in a few minutes."
+      "Check your network connection and retry."
     );
   }
 
   private toNetworkError(error: unknown): WhichModelError {
     if (error instanceof WhichModelError) {
       return error;
+    }
+
+    if (isAbortError(error)) {
+      return new WhichModelError(
+        "Timeout fetching model catalog from OpenRouter.",
+        ExitCode.NETWORK_ERROR,
+        [
+          "This can be caused by a slow network or temporary API issues.",
+          "Retry in a few minutes and check https://status.openrouter.ai.",
+        ].join("\n")
+      );
     }
 
     const detail =

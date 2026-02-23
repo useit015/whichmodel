@@ -10,6 +10,12 @@ function mockResponse(status: number, body: unknown): Response {
   } as Response;
 }
 
+function abortError(message: string): Error {
+  const error = new Error(message);
+  (error as Error & { name: string }).name = "AbortError";
+  return error;
+}
+
 describe("requestRecommendationCompletion", () => {
   it("returns parsed content and usage for success", async () => {
     const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(
@@ -66,6 +72,26 @@ describe("requestRecommendationCompletion", () => {
         retryDelaysMs: [0, 0],
       })
     ).rejects.toMatchObject({ exitCode: ExitCode.LLM_FAILED });
+
+    expect(fetchImpl).toHaveBeenCalledTimes(3);
+  });
+
+  it("maps repeated aborts to timeout guidance", async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockRejectedValue(abortError("request timed out"));
+
+    await expect(
+      requestRecommendationCompletion({
+        apiKey: "sk-or-test",
+        model: "deepseek/deepseek-v3.2",
+        systemPrompt: "system",
+        userPrompt: "user",
+        fetchImpl,
+        retryDelaysMs: [0, 0],
+      })
+    ).rejects.toMatchObject({
+      exitCode: ExitCode.LLM_FAILED,
+      message: "OpenRouter LLM request timed out.",
+    });
 
     expect(fetchImpl).toHaveBeenCalledTimes(3);
   });

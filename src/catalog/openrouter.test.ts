@@ -118,6 +118,7 @@ describe("OpenRouterCatalog", () => {
 
     await expect(catalog.fetch()).rejects.toMatchObject({
       exitCode: ExitCode.NETWORK_ERROR,
+      message: "Timeout fetching model catalog from OpenRouter.",
     });
 
     expect(fetchImpl).toHaveBeenCalledTimes(3);
