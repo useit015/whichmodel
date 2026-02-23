@@ -41,10 +41,10 @@ describe("formatTerminal", () => {
       noColor: true,
     });
 
-    expect(output).toContain("Task Analysis");
-    expect(output).toContain("Cheapest");
-    expect(output).toContain("Balanced");
-    expect(output).toContain("Best");
-    expect(output).toContain("This recommendation cost $0.0030");
+    expect(output).toContain("🔍 Task Analysis");
+    expect(output).toContain("💰 Cheapest —");
+    expect(output).toContain("⚖️ Balanced —");
+    expect(output).toContain("🏆 Best —");
+    expect(output).toContain("⚡ This recommendation cost $0.0030");
   });
 });

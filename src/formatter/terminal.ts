@@ -14,21 +14,21 @@ export function formatTerminal(rec: Recommendation, meta: TerminalMeta): string 
   const c = meta.noColor ? new Chalk({ level: 0 }) : chalk;
   const lines: string[] = [];
 
-  lines.push(`${c.cyan("Task Analysis")}`);
+  lines.push(`${c.cyan("🔍 Task Analysis")}`);
   lines.push(`   Modality: ${c.bold(rec.taskAnalysis.detectedModality.toUpperCase())}`);
   lines.push(`   ${rec.taskAnalysis.summary}`);
   lines.push(`   ${c.dim(rec.taskAnalysis.modalityReasoning)}`);
 
   const tiers = [
-    { key: "cheapest", icon: "Cheapest", color: c.green },
-    { key: "balanced", icon: "Balanced", color: c.yellow },
-    { key: "best", icon: "Best", color: c.magenta },
+    { key: "cheapest", icon: "💰", label: "Cheapest", color: c.green },
+    { key: "balanced", icon: "⚖️", label: "Balanced", color: c.yellow },
+    { key: "best", icon: "🏆", label: "Best", color: c.magenta },
   ] as const;
 
   for (const tier of tiers) {
     const pick = rec.recommendations[tier.key];
     lines.push("");
-    lines.push(`${tier.color(tier.icon)} - ${c.bold(pick.id)}`);
+    lines.push(`${tier.icon} ${tier.color(tier.label)} — ${c.bold(pick.id)}`);
     lines.push(`   ${c.dim(pick.pricingSummary)}`);
     lines.push(`   ${pick.reason}`);
     lines.push(`   ${c.dim(`Est. ${pick.estimatedCost}`)}`);
@@ -36,12 +36,12 @@ export function formatTerminal(rec: Recommendation, meta: TerminalMeta): string 
 
   if (rec.alternativesInOtherModalities) {
     lines.push("");
-    lines.push(`${c.dim(rec.alternativesInOtherModalities)}`);
+    lines.push(`💡 Tip: ${c.dim(rec.alternativesInOtherModalities)}`);
   }
 
   lines.push("");
   lines.push(
-    `${c.dim(`This recommendation cost $${meta.cost.toFixed(4)} (${meta.recommenderModel})`)}`
+    `⚡ ${c.dim(`This recommendation cost $${meta.cost.toFixed(4)} (${meta.recommenderModel})`)}`
   );
 
   if (meta.verbose) {
