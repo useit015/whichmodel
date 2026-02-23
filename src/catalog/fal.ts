@@ -1,27 +1,58 @@
 import type { CatalogSource } from "./source.js";
 import { normalizeFalModel } from "./normalization.js";
-import { ExitCode, WhichModelError, type FalModel, type FalResponse, type ModelEntry } from "../types.js";
+import { ExitCode, WhichModelError, type FalModel, type ModelEntry } from "../types.js";
 
-const DEFAULT_ENDPOINT = "https://fal.run/api/models";
+const DEFAULT_MODELS_ENDPOINT = "https://api.fal.ai/v1/models";
+const DEFAULT_PRICING_ENDPOINT = "https://api.fal.ai/v1/models/pricing";
 const DEFAULT_TIMEOUT_MS = 10_000;
 const DEFAULT_RETRY_DELAYS_MS = [1_000, 2_000, 4_000];
+const DEFAULT_PAGE_SIZE = 100;
+const PRICING_CHUNK_SIZE = 20;
+const MAX_MODEL_PAGES = 5;
+const MAX_CANDIDATE_MODELS = 120;
 
 type Sleep = (ms: number) => Promise<void>;
 
 export interface FalCatalogOptions {
   apiKey?: string;
-  endpoint?: string;
+  modelsEndpoint?: string;
+  pricingEndpoint?: string;
   timeoutMs?: number;
   retryDelaysMs?: number[];
   fetchImpl?: typeof fetch;
   sleep?: Sleep;
 }
 
+interface FalPlatformModel {
+  endpoint_id: string;
+  metadata?: {
+    display_name?: string;
+    category?: string;
+  };
+}
+
+interface FalModelsListResponse {
+  models?: FalPlatformModel[];
+  has_more?: boolean;
+  next_cursor?: string | null;
+}
+
+interface FalPlatformPrice {
+  endpoint_id: string;
+  unit_price: number;
+  unit?: string;
+}
+
+interface FalPricingResponse {
+  prices?: FalPlatformPrice[];
+}
+
 export class FalCatalog implements CatalogSource {
   readonly sourceId = "fal";
 
   private readonly apiKey?: string;
-  private readonly endpoint: string;
+  private readonly modelsEndpoint: string;
+  private readonly pricingEndpoint: string;
   private readonly timeoutMs: number;
   private readonly retryDelaysMs: number[];
   private readonly fetchImpl: typeof fetch;
@@ -29,7 +60,8 @@ export class FalCatalog implements CatalogSource {
 
   constructor(options: FalCatalogOptions = {}) {
     this.apiKey = options.apiKey;
-    this.endpoint = options.endpoint ?? DEFAULT_ENDPOINT;
+    this.modelsEndpoint = options.modelsEndpoint ?? DEFAULT_MODELS_ENDPOINT;
+    this.pricingEndpoint = options.pricingEndpoint ?? DEFAULT_PRICING_ENDPOINT;
     this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     this.retryDelaysMs = options.retryDelaysMs ?? DEFAULT_RETRY_DELAYS_MS;
     this.fetchImpl = options.fetchImpl ?? fetch;
@@ -45,12 +77,128 @@ export class FalCatalog implements CatalogSource {
       );
     }
 
+    const platformModels = await this.fetchAllPlatformModels();
+    if (platformModels.length === 0) {
+      return [];
+    }
+
+    const priceMap = await this.fetchPricingMap(platformModels.map((model) => model.endpoint_id));
+    const normalizedRaw: FalModel[] = platformModels
+      .map((model) => this.toFalModel(model, priceMap.get(model.endpoint_id)))
+      .filter((model): model is FalModel => model !== null);
+
+    return normalizedRaw
+      .map((model) => normalizeFalModel(model))
+      .filter((model): model is ModelEntry => model !== null);
+  }
+
+  private async fetchAllPlatformModels(): Promise<FalPlatformModel[]> {
+    const all: FalPlatformModel[] = [];
+    let cursor: string | undefined;
+    let pagesFetched = 0;
+
+    for (;;) {
+      const params = new URLSearchParams();
+      params.set("limit", String(DEFAULT_PAGE_SIZE));
+      if (cursor) {
+        params.set("cursor", cursor);
+      }
+
+      const payload = await this.requestJson<FalModelsListResponse>(
+        `${this.modelsEndpoint}?${params.toString()}`
+      );
+
+      if (!payload || !Array.isArray(payload.models)) {
+        throw new WhichModelError(
+          "fal.ai catalog response is invalid.",
+          ExitCode.NETWORK_ERROR,
+          "Retry in a few minutes."
+        );
+      }
+
+      all.push(
+        ...payload.models.filter((model) => isSupportedFalCategory(model.metadata?.category))
+      );
+      pagesFetched += 1;
+
+      if (all.length >= MAX_CANDIDATE_MODELS || pagesFetched >= MAX_MODEL_PAGES) {
+        break;
+      }
+
+      if (!payload.has_more || !payload.next_cursor) {
+        break;
+      }
+
+      cursor = payload.next_cursor;
+    }
+
+    return all.slice(0, MAX_CANDIDATE_MODELS);
+  }
+
+  private async fetchPricingMap(
+    endpointIds: string[]
+  ): Promise<Map<string, { amount: number; unit?: string }>> {
+    const priceMap = new Map<string, { amount: number; unit?: string }>();
+
+    for (const chunk of chunked(endpointIds, PRICING_CHUNK_SIZE)) {
+      await this.fetchPricingForChunk(chunk, priceMap);
+    }
+
+    return priceMap;
+  }
+
+  private toFalModel(
+    model: FalPlatformModel,
+    pricing: { amount: number; unit?: string } | undefined
+  ): FalModel | null {
+    const category = model.metadata?.category;
+    if (!category || typeof category !== "string") {
+      return null;
+    }
+
+    if (
+      !pricing ||
+      typeof pricing.amount !== "number" ||
+      !Number.isFinite(pricing.amount) ||
+      pricing.amount <= 0
+    ) {
+      return null;
+    }
+
+    return {
+      id: model.endpoint_id,
+      name: model.metadata?.display_name?.trim() || model.endpoint_id,
+      category,
+      pricing: {
+        type: this.falUnitToPricingType(category, pricing.unit),
+        amount: pricing.amount,
+      },
+    };
+  }
+
+  private falUnitToPricingType(category: string, unit?: string): string {
+    const normalizedUnit = unit?.toLowerCase() ?? "";
+    if (normalizedUnit.includes("second")) {
+      return "per_second";
+    }
+
+    const normalized = category.toLowerCase();
+    if (normalized.includes("image")) {
+      return "per_image";
+    }
+    if (normalized.includes("video")) {
+      return "per_generation";
+    }
+    return "per_generation";
+  }
+
+  private async requestJson<T>(url: string): Promise<T> {
     const maxAttempts = this.retryDelaysMs.length + 1;
     let lastError: unknown;
 
     for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
       try {
-        const response = await this.fetchWithTimeout();
+        const response = await this.fetchWithTimeout(url);
 
         if (!response.ok) {
           if (this.shouldRetryStatus(response.status) && attempt < maxAttempts - 1) {
@@ -61,19 +209,7 @@ export class FalCatalog implements CatalogSource {
           throw this.buildHttpError(response.status);
         }
 
-        const payload = (await response.json()) as FalResponse;
-        const models = this.parseResponseModels(payload);
-        if (!models) {
-          throw new WhichModelError(
-            "fal.ai catalog response is invalid.",
-            ExitCode.NETWORK_ERROR,
-            "Retry in a few minutes."
-          );
-        }
-
-        return models
-          .map((model) => normalizeFalModel(model))
-          .filter((model): model is ModelEntry => model !== null);
+        return (await response.json()) as T;
       } catch (error) {
         lastError = error;
 
@@ -89,29 +225,12 @@ export class FalCatalog implements CatalogSource {
     throw this.toNetworkError(lastError);
   }
 
-  private parseResponseModels(payload: FalResponse): FalModel[] | null {
-    if (Array.isArray(payload)) {
-      return payload;
-    }
-
-    if (payload && typeof payload === "object") {
-      if (Array.isArray(payload.models)) {
-        return payload.models;
-      }
-      if (Array.isArray(payload.data)) {
-        return payload.data;
-      }
-    }
-
-    return null;
-  }
-
-  private async fetchWithTimeout(): Promise<Response> {
+  private async fetchWithTimeout(url: string): Promise<Response> {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), this.timeoutMs);
 
     try {
-      return await this.fetchImpl(this.endpoint, {
+      return await this.fetchImpl(url, {
         method: "GET",
         headers: {
           Authorization: `Key ${this.apiKey}`,
@@ -121,6 +240,64 @@ export class FalCatalog implements CatalogSource {
       });
     } finally {
       clearTimeout(timeoutId);
+    }
+  }
+
+  private async fetchPricingForChunk(
+    endpointIds: string[],
+    priceMap: Map<string, { amount: number; unit?: string }>
+  ): Promise<void> {
+    if (endpointIds.length === 0) {
+      return;
+    }
+
+    const params = new URLSearchParams();
+    params.set("limit", String(DEFAULT_PAGE_SIZE));
+    for (const endpointId of endpointIds) {
+      params.append("endpoint_id", endpointId);
+    }
+
+    try {
+      const payload = await this.requestJson<FalPricingResponse>(
+        `${this.pricingEndpoint}?${params.toString()}`
+      );
+      if (!payload || !Array.isArray(payload.prices)) {
+        throw new WhichModelError(
+          "fal.ai pricing response is invalid.",
+          ExitCode.NETWORK_ERROR,
+          "Retry in a few minutes."
+        );
+      }
+
+      for (const price of payload.prices) {
+        if (!price || typeof price.endpoint_id !== "string") {
+          continue;
+        }
+        if (typeof price.unit_price !== "number" || !Number.isFinite(price.unit_price)) {
+          continue;
+        }
+        priceMap.set(price.endpoint_id, {
+          amount: price.unit_price,
+          unit: price.unit,
+        });
+      }
+    } catch (error) {
+      const isNotFound =
+        error instanceof WhichModelError &&
+        error.exitCode === ExitCode.NETWORK_ERROR &&
+        /\(status 404\)/.test(error.message);
+
+      if (!isNotFound) {
+        throw error;
+      }
+
+      if (endpointIds.length === 1) {
+        return;
+      }
+
+      const middle = Math.floor(endpointIds.length / 2);
+      await this.fetchPricingForChunk(endpointIds.slice(0, middle), priceMap);
+      await this.fetchPricingForChunk(endpointIds.slice(middle), priceMap);
     }
   }
 
@@ -207,4 +384,26 @@ async function wait(ms: number): Promise<void> {
   await new Promise<void>((resolve) => {
     setTimeout(resolve, ms);
   });
+}
+
+function chunked<T>(values: T[], size: number): T[][] {
+  if (size <= 0) {
+    return [values];
+  }
+
+  const chunks: T[][] = [];
+  for (let i = 0; i < values.length; i += size) {
+    chunks.push(values.slice(i, i + size));
+  }
+
+  return chunks;
+}
+
+function isSupportedFalCategory(category: string | undefined): boolean {
+  if (!category) {
+    return false;
+  }
+
+  const normalized = category.toLowerCase();
+  return normalized.includes("image") || normalized.includes("video");
 }

@@ -17,29 +17,53 @@ function abortError(message: string): Error {
 }
 
 describe("FalCatalog", () => {
-  it("normalizes image/video models and filters unsupported categories", async () => {
-    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(
-      mockResponse(200, [
-        {
-          id: "black-forest-labs/flux-1.1-pro",
-          name: "Flux 1.1 Pro",
-          category: "image-generation",
-          pricing: { type: "per_image", amount: 0.04 },
-        },
-        {
-          id: "kling-ai/kling-v2",
-          name: "Kling v2",
-          category: "text-to-video",
-          pricing: { type: "per_generation", amount: 0.6 },
-        },
-        {
-          id: "audio/stt-model",
-          name: "Unsupported STT",
-          category: "speech-to-text",
-          pricing: { type: "per_minute", amount: 0.01 },
-        },
-      ])
-    );
+  it("normalizes platform models and pricing into image/video entries", async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.startsWith("https://api.fal.ai/v1/models?")) {
+        return mockResponse(200, {
+          models: [
+            {
+              endpoint_id: "black-forest-labs/flux-1.1-pro",
+              metadata: { display_name: "Flux 1.1 Pro", category: "text-to-image" },
+            },
+            {
+              endpoint_id: "kling-ai/kling-v2",
+              metadata: { display_name: "Kling v2", category: "text-to-video" },
+            },
+            {
+              endpoint_id: "fal-ai/training/sdxl",
+              metadata: { display_name: "SDXL Training", category: "training" },
+            },
+          ],
+          has_more: false,
+          next_cursor: null,
+        });
+      }
+
+      if (url.startsWith("https://api.fal.ai/v1/models/pricing?")) {
+        return mockResponse(200, {
+          prices: [
+            {
+              endpoint_id: "black-forest-labs/flux-1.1-pro",
+              unit_price: 0.04,
+              unit: "images",
+              currency: "USD",
+            },
+            {
+              endpoint_id: "kling-ai/kling-v2",
+              unit_price: 0.6,
+              unit: "seconds",
+              currency: "USD",
+            },
+          ],
+          has_more: false,
+          next_cursor: null,
+        });
+      }
+
+      return mockResponse(404, {});
+    });
 
     const catalog = new FalCatalog({
       apiKey: "fal_test",
@@ -55,27 +79,131 @@ describe("FalCatalog", () => {
     expect(models[0]?.modality).toBe("image");
     expect(models[1]?.id).toBe("fal::kling-ai/kling-v2");
     expect(models[1]?.modality).toBe("video");
+    expect(models[1]?.pricing).toMatchObject({ type: "video", perSecond: 0.6 });
   });
 
-  it("accepts object responses with models field", async () => {
-    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(
-      mockResponse(200, {
-        models: [
-          {
-            id: "stabilityai/stable-diffusion-xl",
-            name: "Stable Diffusion XL",
-            category: "image-generation",
-            pricing: { type: "per_image", amount: 0.003 },
-          },
-        ],
-      })
-    );
+  it("follows model pagination using cursor", async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.includes("/v1/models?") && url.includes("cursor=abc")) {
+        return mockResponse(200, {
+          models: [
+            {
+              endpoint_id: "stabilityai/stable-diffusion-xl",
+              metadata: { display_name: "Stable Diffusion XL", category: "image-to-image" },
+            },
+          ],
+          has_more: false,
+          next_cursor: null,
+        });
+      }
+
+      if (url.includes("/v1/models?")) {
+        return mockResponse(200, {
+          models: [
+            {
+              endpoint_id: "fal-ai/veo3",
+              metadata: { display_name: "Veo 3", category: "text-to-video" },
+            },
+          ],
+          has_more: true,
+          next_cursor: "abc",
+        });
+      }
+
+      if (url.includes("/v1/models/pricing?")) {
+        return mockResponse(200, {
+          prices: [
+            {
+              endpoint_id: "fal-ai/veo3",
+              unit_price: 0.4,
+              unit: "seconds",
+              currency: "USD",
+            },
+            {
+              endpoint_id: "stabilityai/stable-diffusion-xl",
+              unit_price: 0.003,
+              unit: "images",
+              currency: "USD",
+            },
+          ],
+          has_more: false,
+          next_cursor: null,
+        });
+      }
+
+      return mockResponse(404, {});
+    });
 
     const catalog = new FalCatalog({ apiKey: "fal_test", fetchImpl, retryDelaysMs: [0] });
     const models = await catalog.fetch();
 
-    expect(models).toHaveLength(1);
-    expect(models[0]?.id).toBe("fal::stabilityai/stable-diffusion-xl");
+    expect(models).toHaveLength(2);
+    expect(fetchImpl).toHaveBeenCalledTimes(3);
+  });
+
+  it("splits pricing requests when batch endpoint lookup returns 404", async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.includes("/v1/models?")) {
+        return mockResponse(200, {
+          models: [
+            {
+              endpoint_id: "fal-ai/model-a",
+              metadata: { display_name: "Model A", category: "text-to-image" },
+            },
+            {
+              endpoint_id: "fal-ai/model-b",
+              metadata: { display_name: "Model B", category: "text-to-video" },
+            },
+          ],
+          has_more: false,
+          next_cursor: null,
+        });
+      }
+
+      if (url.includes("/v1/models/pricing?")) {
+        const endpointCount = (url.match(/endpoint_id=/g) ?? []).length;
+        if (endpointCount > 1) {
+          return mockResponse(404, {
+            error: { type: "not_found", message: "Endpoint ids not found" },
+          });
+        }
+
+        if (url.includes("model-a")) {
+          return mockResponse(200, {
+            prices: [
+              {
+                endpoint_id: "fal-ai/model-a",
+                unit_price: 0.02,
+                unit: "images",
+                currency: "USD",
+              },
+            ],
+          });
+        }
+
+        return mockResponse(200, {
+          prices: [
+            {
+              endpoint_id: "fal-ai/model-b",
+              unit_price: 0.5,
+              unit: "seconds",
+              currency: "USD",
+            },
+          ],
+        });
+      }
+
+      return mockResponse(404, {});
+    });
+
+    const catalog = new FalCatalog({ apiKey: "fal_test", fetchImpl, retryDelaysMs: [0] });
+    const models = await catalog.fetch();
+
+    expect(models).toHaveLength(2);
+    expect(models[0]?.id).toBe("fal::fal-ai/model-a");
+    expect(models[1]?.id).toBe("fal::fal-ai/model-b");
   });
 
   it("throws NO_API_KEY when FAL key is missing", async () => {
