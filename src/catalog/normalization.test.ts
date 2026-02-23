@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { FalModel, OpenRouterModel } from "../types.js";
 import {
+  classifyFalCategory,
   classifyModality,
   extractFamily,
   extractProvider,
@@ -149,7 +150,7 @@ describe("normalizeFalModel", () => {
     const raw: FalModel = {
       id: "some/stt-model",
       name: "STT Model",
-      category: "speech-to-text",
+      category: "training",
       pricing: {
         type: "per_minute",
         amount: 0.002,
@@ -171,5 +172,56 @@ describe("normalizeFalModel", () => {
     };
 
     expect(normalizeFalModel(raw)).toBeNull();
+  });
+
+  it("normalizes audio stt categories", () => {
+    const raw: FalModel = {
+      id: "fal-ai/whisper-v3",
+      name: "Whisper v3",
+      category: "audio-to-text",
+      pricing: {
+        type: "per_minute",
+        amount: 0.006,
+      },
+    };
+
+    const normalized = normalizeFalModel(raw);
+    expect(normalized).not.toBeNull();
+    expect(normalized?.modality).toBe("audio_stt");
+    expect(normalized?.pricing).toMatchObject({ type: "audio", perMinute: 0.006 });
+    expect(normalized?.inputModalities).toEqual(["audio"]);
+    expect(normalized?.outputModalities).toEqual(["text"]);
+  });
+
+  it("normalizes audio tts categories", () => {
+    const raw: FalModel = {
+      id: "fal-ai/kokoro",
+      name: "Kokoro TTS",
+      category: "text-to-speech",
+      pricing: {
+        type: "per_second",
+        amount: 0.01,
+      },
+    };
+
+    const normalized = normalizeFalModel(raw);
+    expect(normalized).not.toBeNull();
+    expect(normalized?.modality).toBe("audio_tts");
+    expect(normalized?.pricing).toMatchObject({ type: "audio", perSecond: 0.01 });
+    expect(normalized?.inputModalities).toEqual(["text"]);
+    expect(normalized?.outputModalities).toEqual(["audio"]);
+  });
+});
+
+describe("classifyFalCategory", () => {
+  it.each([
+    { category: "text-to-image", expected: "image" },
+    { category: "video-to-video", expected: "video" },
+    { category: "audio-to-text", expected: "audio_stt" },
+    { category: "text-to-speech", expected: "audio_tts" },
+    { category: "speech-to-speech", expected: "audio_generation" },
+    { category: "training", expected: null },
+  ])("maps '$category' to $expected", ({ category, expected }) => {
+    expect(classifyFalCategory(category)).toBe(expected);
   });
 });

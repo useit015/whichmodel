@@ -121,7 +121,7 @@ export function normalizeOpenRouterModel(raw: OpenRouterModel): ModelEntry | nul
 }
 
 export function normalizeFalModel(raw: FalModel): ModelEntry | null {
-  const modality = mapFalCategoryToModality(raw.category);
+  const modality = classifyFalCategory(raw.category);
   if (!modality) {
     return null;
   }
@@ -160,8 +160,27 @@ function normalizeModalities(values?: string[]): string[] {
   return Array.from(new Set(normalized));
 }
 
-function mapFalCategoryToModality(category: string): Modality | null {
+export function classifyFalCategory(category: string): Modality | null {
   const normalized = category.trim().toLowerCase();
+
+  if (normalized.includes("speech-to-text") || normalized.includes("audio-to-text")) {
+    return "audio_stt";
+  }
+
+  if (normalized.includes("text-to-speech")) {
+    return "audio_tts";
+  }
+
+  if (
+    normalized.includes("text-to-audio") ||
+    normalized.includes("audio-to-audio") ||
+    normalized.includes("speech-to-speech") ||
+    normalized.includes("video-to-audio") ||
+    normalized.includes("audio-generation") ||
+    normalized.includes("music")
+  ) {
+    return "audio_generation";
+  }
 
   if (
     normalized.includes("image-generation") ||
@@ -219,6 +238,31 @@ function normalizeFalPricing(raw: FalModel, modality: Modality): ModelEntry["pri
     };
   }
 
+  if (
+    modality === "audio_tts" ||
+    modality === "audio_stt" ||
+    modality === "audio_generation"
+  ) {
+    if (priceType === "per_minute") {
+      return {
+        type: "audio",
+        perMinute: round(amount, 6),
+      };
+    }
+
+    if (priceType === "per_character") {
+      return {
+        type: "audio",
+        perCharacter: round(amount, 6),
+      };
+    }
+
+    return {
+      type: "audio",
+      perSecond: round(amount, 6),
+    };
+  }
+
   return null;
 }
 
@@ -226,6 +270,18 @@ function falInputModalities(category: string): string[] {
   const normalized = category.trim().toLowerCase();
   if (normalized.includes("image-to-video")) {
     return ["image"];
+  }
+
+  if (normalized.startsWith("image-to-")) {
+    return ["image"];
+  }
+
+  if (normalized.startsWith("video-to-")) {
+    return ["video"];
+  }
+
+  if (normalized.startsWith("audio-to-") || normalized.startsWith("speech-to-")) {
+    return ["audio"];
   }
 
   return ["text"];
@@ -238,6 +294,17 @@ function falOutputModalities(modality: Modality): string[] {
 
   if (modality === "video") {
     return ["video"];
+  }
+
+  if (modality === "audio_stt") {
+    return ["text"];
+  }
+
+  if (
+    modality === "audio_tts" ||
+    modality === "audio_generation"
+  ) {
+    return ["audio"];
   }
 
   return ["text"];
