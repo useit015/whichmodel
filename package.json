@@ -1,0 +1,46 @@
+{
+  "name": "whichmodel",
+  "version": "0.1.0",
+  "description": "Tell me what you want to build. I'll tell you which AI model to use.",
+  "type": "module",
+  "bin": {
+    "whichmodel": "./dist/index.js"
+  },
+  "scripts": {
+    "dev": "tsx src/index.ts",
+    "build": "tsup",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "catalog:fetch": "tsx src/scripts/catalog-fetch.ts",
+    "lint": "tsc --noEmit"
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "dependencies": {
+    "chalk": "^5.4.0",
+    "commander": "^13.0.0",
+    "ora": "^8.2.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.1",
+    "@vitest/coverage-v8": "^3.1.0",
+    "tsup": "^8.4.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^3.1.0"
+  },
+  "keywords": [
+    "ai",
+    "llm",
+    "model",
+    "recommender",
+    "cli",
+    "openrouter"
+  ],
+  "license": "MIT"
+}
