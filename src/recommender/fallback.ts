@@ -61,12 +61,20 @@ export function detectTaskModality(task: string): Modality {
   const text = task.toLowerCase();
 
   if (/(transcribe|caption|speech to text|stt)/.test(text)) return "audio_stt";
-  if (/(voiceover|text to speech|tts|narration)/.test(text)) return "audio_tts";
+  if (/(voiceover|text to speech|tts|narration|clone (a )?voice|voice clone)/.test(text)) {
+    return "audio_tts";
+  }
   if (/(music|soundtrack|audio generation)/.test(text)) return "audio_generation";
   if (/(embedding|semantic search|vector|rag)/.test(text)) return "embedding";
-  if (/(screenshot|ocr|analy[sz]e image|vision)/.test(text)) return "vision";
+  if (
+    /(screenshot|ocr|analy[sz]e image|analy[sz]e .*website|vision|extract text from pdf)/.test(
+      text
+    )
+  ) {
+    return "vision";
+  }
   if (/(video|clip|animation)/.test(text) && !/(script|outline|copy)/.test(text)) return "video";
-  if (/(image|photo|logo|illustration|art)/.test(text)) return "image";
+  if (/(image|photo|logo|illustration|art|avatar)/.test(text)) return "image";
 
   return "text";
 }
