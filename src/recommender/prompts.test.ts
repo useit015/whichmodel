@@ -6,7 +6,7 @@ describe("buildSystemPrompt", () => {
     const prompt = buildSystemPrompt();
 
     expect(prompt).toContain("expert AI model selector");
-    expect(prompt).toContain("Respond with ONLY valid JSON");
+    expect(prompt).toContain("Respond with ONLY this JSON structure");
   });
 });
 
