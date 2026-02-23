@@ -2,7 +2,7 @@
 
 > **Version:** 1.0
 > **Last Updated:** 2026-02-23
-> **Status:** Phase 0 Complete, Phase 1 Complete, Phase 2 Complete
+> **Status:** Phase 0 Complete, Phase 1 Complete, Phase 1.5 Complete, Phase 2 Complete
 
 ---
 
@@ -177,12 +177,20 @@ npm uninstall -g whichmodel
 ```
 
 ### Exit Criteria
-- [ ] Verbose mode shows all metadata
-- [ ] Cost is accurate (±10%)
-- [ ] Long inputs are rejected
-- [ ] No API keys in any logs
-- [ ] README is complete and accurate
-- [ ] Can install globally via npm
+- [x] Verbose mode shows all metadata
+- [x] Cost is accurate (±10%)
+- [x] Long inputs are rejected
+- [x] No API keys in any logs
+- [x] README is complete and accurate
+- [x] Can install globally via npm
+
+### Current Phase 1.5 Milestone Status (2026-02-23)
+- [x] M1.11 Verbose output (tokens, cost, timing)
+- [x] M1.12 Cost tracking
+- [x] M1.13 Input validation
+- [x] M1.14 Security audit (no secret leakage)
+- [x] M1.15 Documentation (README aligned to implementation)
+- [x] M1.16 npm package global install verification
 
 ---
 
