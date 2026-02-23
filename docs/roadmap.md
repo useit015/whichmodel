@@ -235,12 +235,21 @@ npm run dev -- "test" --sources openrouter,fal
 ```
 
 ### Exit Criteria
-- [ ] All 30+ modality detection tests pass
-- [ ] Image tasks recommend image models
-- [ ] Video tasks recommend video models
-- [ ] Audio tasks recommend audio models
-- [ ] Multi-source catalog works
-- [ ] No regressions in text recommendations
+- [x] All 30+ modality detection tests pass
+- [x] Image tasks recommend image models
+- [x] Video tasks recommend video models
+- [x] Audio tasks recommend audio models
+- [x] Multi-source catalog works
+- [x] No regressions in text recommendations
+
+### Current Phase 2 Milestone Status (2026-02-23)
+- [x] M2.1 Modality detection tests (30+)
+- [x] M2.2 fal.ai catalog adapter
+- [x] M2.3 Multi-source catalog merging
+- [x] M2.4 Image recommendation
+- [x] M2.5 Video recommendation
+- [x] M2.6 Audio recommendation
+- [ ] M2.7 Replicate adapter (optional)
 
 ---
 
