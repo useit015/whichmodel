@@ -115,6 +115,7 @@ describe("CLI integration error handling", () => {
 
     expect(result.status).toBe(3);
     expect(result.stderr).toContain("Error: FAL_API_KEY is not set.");
-    expect(result.stderr).toContain("Set FAL_API_KEY and retry, or use --sources openrouter.");
+    expect(result.stderr).toContain("Set FAL_API_KEY and retry.");
   });
+
 });

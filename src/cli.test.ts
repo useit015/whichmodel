@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  fetchCatalogModelsFromFetchers,
   parseConstraints,
   parseSources,
   validateSupportedSources,
@@ -110,5 +111,114 @@ describe("validateSupportedSources", () => {
         exitCode: ExitCode.INVALID_ARGUMENTS,
       })
     );
+  });
+});
+
+describe("fetchCatalogModelsFromFetchers", () => {
+  it("merges successful source results", async () => {
+    const warnMessages: string[] = [];
+    const models = await fetchCatalogModelsFromFetchers(
+      [
+        {
+          source: "openrouter",
+          fetch: async () => [
+            {
+              id: "openrouter::deepseek/deepseek-v3.2",
+              source: "openrouter",
+              name: "DeepSeek V3.2",
+              modality: "text",
+              inputModalities: ["text"],
+              outputModalities: ["text"],
+              pricing: { type: "text", promptPer1mTokens: 0.25, completionPer1mTokens: 0.38 },
+              provider: "deepseek",
+              family: "deepseek",
+            },
+          ],
+        },
+        {
+          source: "fal",
+          fetch: async () => [
+            {
+              id: "fal::fal-ai/flux-2",
+              source: "fal",
+              name: "FLUX.2",
+              modality: "image",
+              inputModalities: ["text"],
+              outputModalities: ["image"],
+              pricing: { type: "image", perImage: 0.012 },
+              provider: "fal-ai",
+              family: "flux",
+            },
+          ],
+        },
+      ],
+      ["openrouter", "fal"],
+      (message) => warnMessages.push(message)
+    );
+
+    expect(models).toHaveLength(2);
+    expect(warnMessages).toHaveLength(0);
+  });
+
+  it("continues when one source fails and warns", async () => {
+    const warnMessages: string[] = [];
+    const models = await fetchCatalogModelsFromFetchers(
+      [
+        {
+          source: "openrouter",
+          fetch: async () => [
+            {
+              id: "openrouter::deepseek/deepseek-v3.2",
+              source: "openrouter",
+              name: "DeepSeek V3.2",
+              modality: "text",
+              inputModalities: ["text"],
+              outputModalities: ["text"],
+              pricing: { type: "text", promptPer1mTokens: 0.25, completionPer1mTokens: 0.38 },
+              provider: "deepseek",
+              family: "deepseek",
+            },
+          ],
+        },
+        {
+          source: "fal",
+          fetch: async () => {
+            throw new Error("rate limit");
+          },
+        },
+      ],
+      ["openrouter", "fal"],
+      (message) => warnMessages.push(message)
+    );
+
+    expect(models).toHaveLength(1);
+    expect(warnMessages).toHaveLength(1);
+    expect(warnMessages[0]).toContain("fal: rate limit");
+  });
+
+  it("throws NO_MODELS_FOUND when all sources fail", async () => {
+    await expect(
+      fetchCatalogModelsFromFetchers(
+        [
+          {
+            source: "openrouter",
+            fetch: async () => {
+              throw new Error("503 Service Unavailable");
+            },
+          },
+          {
+            source: "fal",
+            fetch: async () => {
+              throw new Error("Connection timeout");
+            },
+          },
+        ],
+        ["openrouter", "fal"],
+        () => {}
+      )
+    ).rejects.toMatchObject({
+      exitCode: ExitCode.NO_MODELS_FOUND,
+      message: "All catalog sources failed to respond.",
+    });
   });
 });

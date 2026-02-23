@@ -1,6 +1,7 @@
 import { Command } from "commander";
 import ora from "ora";
 import { FalCatalog } from "./catalog/fal.js";
+import { mergeCatalogModels } from "./catalog/merge.js";
 import { OpenRouterCatalog } from "./catalog/openrouter.js";
 import {
   DEFAULT_RECOMMENDER_MODEL,
@@ -160,6 +161,7 @@ program
 
 export { program };
 export { validateTask, parseConstraints, parseSources, validateSupportedSources };
+export { fetchCatalogModelsFromFetchers };
 
 function validateTask(task: string): void {
   if (!task) {
@@ -408,26 +410,21 @@ function validateSupportedSources(sources: string[]): void {
 }
 
 async function fetchCatalogModels(sources: string[], config: Config): Promise<ModelEntry[]> {
-  const merged: ModelEntry[] = [];
-
+  const sourceFetchers: SourceFetcher[] = [];
   for (const source of sources) {
     if (source === "openrouter") {
-      const openrouterModels = await new OpenRouterCatalog().fetch();
-      merged.push(...openrouterModels);
+      sourceFetchers.push({
+        source,
+        fetch: async () => new OpenRouterCatalog().fetch(),
+      });
       continue;
     }
 
     if (source === "fal") {
-      if (!config.falApiKey) {
-        throw new WhichModelError(
-          "FAL_API_KEY is not set.",
-          ExitCode.NO_API_KEY,
-          "Set FAL_API_KEY and retry, or use --sources openrouter."
-        );
-      }
-
-      const falModels = await new FalCatalog({ apiKey: config.falApiKey }).fetch();
-      merged.push(...falModels);
+      sourceFetchers.push({
+        source,
+        fetch: async () => new FalCatalog({ apiKey: config.falApiKey }).fetch(),
+      });
       continue;
     }
 
@@ -438,22 +435,87 @@ async function fetchCatalogModels(sources: string[], config: Config): Promise<Mo
     );
   }
 
-  return dedupeById(merged);
+  return fetchCatalogModelsFromFetchers(sourceFetchers, sources);
 }
 
-function dedupeById(models: ModelEntry[]): ModelEntry[] {
-  const seen = new Set<string>();
-  const deduped: ModelEntry[] = [];
+interface SourceFetcher {
+  source: string;
+  fetch: () => Promise<ModelEntry[]>;
+}
 
-  for (const model of models) {
-    if (seen.has(model.id)) {
-      continue;
+async function fetchCatalogModelsFromFetchers(
+  fetchers: SourceFetcher[],
+  requestedSources: string[],
+  warn: (message: string) => void = (message) => {
+    console.error(message);
+  }
+): Promise<ModelEntry[]> {
+  const settled = await Promise.allSettled(fetchers.map((fetcher) => fetcher.fetch()));
+  const successfulModels: ModelEntry[][] = [];
+  const failures: Array<{ source: string; message: string }> = [];
+
+  settled.forEach((result, index) => {
+    const source = fetchers[index]?.source ?? "unknown";
+    if (result.status === "fulfilled") {
+      successfulModels.push(result.value);
+      return;
     }
-    deduped.push(model);
-    seen.add(model.id);
+
+    const reason = result.reason;
+    const message = reason instanceof Error ? reason.message : String(reason);
+    failures.push({ source, message });
+  });
+
+  if (successfulModels.length === 0) {
+    if (failures.length === 1 && settled.length === 1) {
+      const reason = settled[0];
+      if (reason && reason.status === "rejected" && reason.reason instanceof WhichModelError) {
+        throw reason.reason;
+      }
+    }
+
+    const attempted = failures.map((failure) => `  ✗ ${failure.source}: ${failure.message}`).join("\n");
+    throw new WhichModelError(
+      "All catalog sources failed to respond.",
+      ExitCode.NO_MODELS_FOUND,
+      [
+        "Attempted sources:",
+        attempted || "  (none)",
+        "",
+        "Suggestions:",
+        "  • Check your internet connection",
+        "  • Verify API keys are valid",
+        "  • Try again in a few minutes",
+      ].join("\n")
+    );
   }
 
-  return deduped;
+  if (failures.length > 0) {
+    const attempted = failures.map((failure) => `  ✗ ${failure.source}: ${failure.message}`).join("\n");
+    warn(
+      [
+        "Warning: Some catalog sources failed. Continuing with available sources.",
+        attempted,
+      ].join("\n")
+    );
+  }
+
+  const merged = mergeCatalogModels(successfulModels);
+  if (merged.length === 0) {
+    throw new WhichModelError(
+      "No models found from any source.",
+      ExitCode.NO_MODELS_FOUND,
+      [
+        `Configured sources: ${requestedSources.join(", ")}`,
+        "",
+        "If you expected more models:",
+        "  • Add FAL_API_KEY for image/video models",
+        "  • Add REPLICATE_API_TOKEN for broader coverage",
+      ].join("\n")
+    );
+  }
+
+  return merged;
 }
 
 function handleCLIError(error: unknown): never {
