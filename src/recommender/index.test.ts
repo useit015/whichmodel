@@ -54,6 +54,17 @@ const mixedModels: ModelEntry[] = [
     family: "flux",
   },
   {
+    id: "fal::fal-ai/flux-2-pro",
+    source: "fal",
+    name: "FLUX.2 Pro",
+    modality: "image",
+    inputModalities: ["text"],
+    outputModalities: ["image"],
+    pricing: { type: "image", perImage: 0.03 },
+    provider: "fal-ai",
+    family: "flux",
+  },
+  {
     id: "fal::fal-ai/veo3",
     source: "fal",
     name: "Veo 3",
@@ -63,6 +74,17 @@ const mixedModels: ModelEntry[] = [
     pricing: { type: "video", perSecond: 0.4 },
     provider: "fal-ai",
     family: "other",
+  },
+  {
+    id: "fal::fal-ai/kling-v2",
+    source: "fal",
+    name: "Kling v2",
+    modality: "video",
+    inputModalities: ["text"],
+    outputModalities: ["video"],
+    pricing: { type: "video", perGeneration: 0.6 },
+    provider: "fal-ai",
+    family: "kling",
   },
   {
     id: "fal::fal-ai/whisper-v3",
@@ -75,9 +97,34 @@ const mixedModels: ModelEntry[] = [
     provider: "fal-ai",
     family: "whisper",
   },
+  {
+    id: "fal::fal-ai/whisper-lite",
+    source: "fal",
+    name: "Whisper Lite",
+    modality: "audio_stt",
+    inputModalities: ["audio"],
+    outputModalities: ["text"],
+    pricing: { type: "audio", perMinute: 0.003 },
+    provider: "fal-ai",
+    family: "whisper",
+  },
 ];
 
 describe("recommend", () => {
+  const modalityById = new Map(mixedModels.map((model) => [model.id, model.modality]));
+
+  function expectAllTiersInModality(result: Awaited<ReturnType<(typeof import("./index.js"))["recommend"]>>, modality: string) {
+    const tiers = [
+      result.recommendation.recommendations.cheapest.id,
+      result.recommendation.recommendations.balanced.id,
+      result.recommendation.recommendations.best.id,
+    ];
+
+    for (const id of tiers) {
+      expect(modalityById.get(id)).toBe(modality);
+    }
+  }
+
   async function loadRecommendWithMock(completionOrError: unknown) {
     vi.resetModules();
     vi.doMock("./llm-client.js", () => {
@@ -175,6 +222,7 @@ describe("recommend", () => {
 
     expect(result.recommendation.taskAnalysis.detectedModality).toBe("image");
     expect(result.recommendation.recommendations.cheapest.id).toBe("fal::fal-ai/flux-2");
+    expectAllTiersInModality(result, "image");
     expect(result.meta.catalogModelsInModality).toBeGreaterThan(0);
   });
 
@@ -193,6 +241,7 @@ describe("recommend", () => {
 
     expect(result.recommendation.taskAnalysis.detectedModality).toBe("video");
     expect(result.recommendation.recommendations.cheapest.id).toBe("fal::fal-ai/veo3");
+    expectAllTiersInModality(result, "video");
     expect(result.meta.catalogModelsInModality).toBeGreaterThan(0);
   });
 
@@ -210,7 +259,8 @@ describe("recommend", () => {
     });
 
     expect(result.recommendation.taskAnalysis.detectedModality).toBe("audio_stt");
-    expect(result.recommendation.recommendations.cheapest.id).toBe("fal::fal-ai/whisper-v3");
+    expect(result.recommendation.recommendations.cheapest.id).toBe("fal::fal-ai/whisper-lite");
+    expectAllTiersInModality(result, "audio_stt");
     expect(result.meta.catalogModelsInModality).toBeGreaterThan(0);
   });
 
