@@ -113,19 +113,19 @@ npm run dev -- "test" --verbose
 - [ ] `whichmodel "summarize documents"` returns 3 recommendations
 - [x] All recommendations have valid model IDs
 - [x] JSON output matches schema
-- [ ] Terminal output matches examples
-- [ ] Fallback mode works when LLM fails
+- [x] Terminal output matches examples
+- [x] Fallback mode works when LLM fails
 - [ ] All error cases have helpful messages
-- [ ] Cost per recommendation <$0.01
+- [x] Cost per recommendation <$0.01
 - [ ] All 20+ modality detection tests pass
 
 ### Current Phase 1 Milestone Status (2026-02-23)
-- [ ] M1.1 LLM prompt templates (current prompt implementation does not fully match locked prompt text)
+- [x] M1.1 LLM prompt templates
 - [x] M1.2 OpenRouter LLM client
 - [x] M1.3 JSON response parser
 - [x] M1.4 Recommendation validator
-- [ ] M1.5 Fallback mode (partial; invalid API key path currently hard-fails instead of falling back)
-- [ ] M1.6 Terminal formatter (implemented, but does not yet match output examples exactly)
+- [x] M1.5 Fallback mode
+- [x] M1.6 Terminal formatter
 - [x] M1.7 JSON formatter
 - [x] M1.8 CLI entry point
 - [ ] M1.9 Error handling (partial)
