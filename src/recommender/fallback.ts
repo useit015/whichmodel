@@ -114,15 +114,21 @@ function getPriceScore(model: ModelEntry): number {
 
   switch (pricing.type) {
     case "text":
-      return pricing.promptPer1mTokens + pricing.completionPer1mTokens;
+      return positiveOrInfinity(
+        pricing.promptPer1mTokens + pricing.completionPer1mTokens
+      );
     case "embedding":
-      return pricing.per1mTokens;
+      return positiveOrInfinity(pricing.per1mTokens);
     case "image":
-      return pricing.perImage ?? pricing.perMegapixel ?? pricing.perStep ?? Number.POSITIVE_INFINITY;
+      return positiveOrInfinity(
+        pricing.perImage ?? pricing.perMegapixel ?? pricing.perStep
+      );
     case "video":
-      return pricing.perSecond ?? pricing.perGeneration ?? Number.POSITIVE_INFINITY;
+      return positiveOrInfinity(pricing.perSecond ?? pricing.perGeneration);
     case "audio":
-      return pricing.perMinute ?? pricing.perCharacter ?? pricing.perSecond ?? Number.POSITIVE_INFINITY;
+      return positiveOrInfinity(
+        pricing.perMinute ?? pricing.perCharacter ?? pricing.perSecond
+      );
     default:
       return Number.POSITIVE_INFINITY;
   }
@@ -261,4 +267,12 @@ function uniquePicks(candidates: ModelEntry[]): ModelEntry[] {
 
 function isModelEntry(value: ModelEntry | undefined): value is ModelEntry {
   return Boolean(value);
+}
+
+function positiveOrInfinity(value: number | undefined): number {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+    return Number.POSITIVE_INFINITY;
+  }
+
+  return value;
 }

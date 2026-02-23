@@ -61,4 +61,22 @@ describe("generateFallbackRecommendation", () => {
     expect(rec.recommendations.best.id).toBeDefined();
     expect(rec.taskAnalysis.detectedModality).toBe("text");
   });
+
+  it("ignores invalid non-positive pricing when picking cheapest", () => {
+    const baseline = textModels[0];
+    if (!baseline) {
+      throw new Error("Missing baseline model fixture");
+    }
+
+    const rec = generateFallbackRecommendation("summarize legal contracts", [
+      {
+        ...baseline,
+        id: "openrouter::bad/negative-pricing",
+        pricing: { type: "text", promptPer1mTokens: -100, completionPer1mTokens: -100 },
+      },
+      ...textModels,
+    ]);
+
+    expect(rec.recommendations.cheapest.id).toBe("openrouter::deepseek/deepseek-v3.2");
+  });
 });
