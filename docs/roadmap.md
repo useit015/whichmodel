@@ -110,14 +110,14 @@ npm run dev -- "test" --verbose
 ```
 
 ### Exit Criteria
-- [ ] `whichmodel "summarize documents"` returns 3 recommendations
+- [x] `whichmodel "summarize documents"` returns 3 recommendations
 - [x] All recommendations have valid model IDs
 - [x] JSON output matches schema
 - [x] Terminal output matches examples
 - [x] Fallback mode works when LLM fails
 - [x] All error cases have helpful messages
 - [x] Cost per recommendation <$0.01
-- [ ] All 20+ modality detection tests pass
+- [x] All 20+ modality detection tests pass
 
 ### Current Phase 1 Milestone Status (2026-02-23)
 - [x] M1.1 LLM prompt templates
