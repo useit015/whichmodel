@@ -8,8 +8,8 @@ const DEFAULT_TIMEOUT_MS = 10_000;
 const DEFAULT_RETRY_DELAYS_MS = [1_000, 2_000, 4_000];
 const DEFAULT_PAGE_SIZE = 100;
 const PRICING_CHUNK_SIZE = 20;
-const MAX_MODEL_PAGES = 5;
-const MAX_CANDIDATE_MODELS = 120;
+const MAX_MODEL_PAGES = 2;
+const MAX_CANDIDATE_MODELS = 60;
 
 type Sleep = (ms: number) => Promise<void>;
 

@@ -1,22 +1,21 @@
 import { FalCatalog } from "../catalog/fal.js";
+import { mergeCatalogModels } from "../catalog/merge.js";
 import { OpenRouterCatalog } from "../catalog/openrouter.js";
 import { getConfig } from "../config.js";
-import { ExitCode, WhichModelError } from "../types.js";
+import { ExitCode, WhichModelError, type ModelEntry } from "../types.js";
 
 async function main(): Promise<void> {
   const sources = parseSourcesArg(process.argv.slice(2));
   const config = getConfig();
 
-  const modelsBySource = await Promise.all(
-    sources.map(async (source) => {
+  const fetchers = sources.map((source) => ({
+    source,
+    fetch: async () => {
       if (source === "openrouter") {
-        const models = await new OpenRouterCatalog().fetch();
-        return { source, models };
+        return new OpenRouterCatalog().fetch();
       }
-
       if (source === "fal") {
-        const models = await new FalCatalog({ apiKey: config.falApiKey }).fetch();
-        return { source, models };
+        return new FalCatalog({ apiKey: config.falApiKey }).fetch();
       }
 
       throw new WhichModelError(
@@ -24,11 +23,51 @@ async function main(): Promise<void> {
         ExitCode.INVALID_ARGUMENTS,
         "Use --sources openrouter,fal"
       );
-    })
-  );
+    },
+  }));
 
-  const models = modelsBySource.flatMap(({ models: sourceModels }) => sourceModels);
-  const sourceSummary = modelsBySource
+  const settled = await Promise.allSettled(fetchers.map((fetcher) => fetcher.fetch()));
+  const successful: Array<{ source: string; models: ModelEntry[] }> = [];
+  const failed: Array<{ source: string; message: string }> = [];
+
+  settled.forEach((result, index) => {
+    const source = fetchers[index]?.source ?? "unknown";
+    if (result.status === "fulfilled") {
+      successful.push({ source, models: result.value });
+      return;
+    }
+
+    const reason = result.reason;
+    failed.push({
+      source,
+      message: reason instanceof Error ? reason.message : String(reason),
+    });
+  });
+
+  if (successful.length === 0) {
+    const attempted = failed.map((item) => `  ✗ ${item.source}: ${item.message}`).join("\n");
+    throw new WhichModelError(
+      "All catalog sources failed to respond.",
+      ExitCode.NO_MODELS_FOUND,
+      [
+        "Attempted sources:",
+        attempted || "  (none)",
+      ].join("\n")
+    );
+  }
+
+  if (failed.length > 0) {
+    const attempted = failed.map((item) => `  ✗ ${item.source}: ${item.message}`).join("\n");
+    console.error(
+      [
+        "Warning: Some catalog sources failed. Continuing with available sources.",
+        attempted,
+      ].join("\n")
+    );
+  }
+
+  const models = mergeCatalogModels(successful.map((item) => item.models));
+  const sourceSummary = successful
     .map(({ source, models: sourceModels }) => `${source}=${sourceModels.length}`)
     .join(", ");
 
