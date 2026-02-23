@@ -1,15 +1,15 @@
 import type { CatalogSource } from "./source.js";
-import { normalizeFalModel } from "./normalization.js";
+import { classifyFalCategory, normalizeFalModel } from "./normalization.js";
 import { ExitCode, WhichModelError, type FalModel, type ModelEntry } from "../types.js";
 
 const DEFAULT_MODELS_ENDPOINT = "https://api.fal.ai/v1/models";
 const DEFAULT_PRICING_ENDPOINT = "https://api.fal.ai/v1/models/pricing";
 const DEFAULT_TIMEOUT_MS = 10_000;
 const DEFAULT_RETRY_DELAYS_MS = [1_000, 2_000, 4_000];
-const DEFAULT_PAGE_SIZE = 100;
+const DEFAULT_PAGE_SIZE = 200;
 const PRICING_CHUNK_SIZE = 20;
-const MAX_MODEL_PAGES = 2;
-const MAX_CANDIDATE_MODELS = 60;
+const MAX_MODEL_PAGES = 8;
+const MAX_CANDIDATE_MODELS = 300;
 
 type Sleep = (ms: number) => Promise<void>;
 
@@ -117,11 +117,11 @@ export class FalCatalog implements CatalogSource {
       }
 
       all.push(
-        ...payload.models.filter((model) => isSupportedFalCategory(model.metadata?.category))
+        ...payload.models.filter((model) => classifyFalCategory(model.metadata?.category ?? "") !== null)
       );
       pagesFetched += 1;
 
-      if (all.length >= MAX_CANDIDATE_MODELS || pagesFetched >= MAX_MODEL_PAGES) {
+      if (pagesFetched >= MAX_MODEL_PAGES || all.length >= MAX_CANDIDATE_MODELS) {
         break;
       }
 
@@ -132,15 +132,18 @@ export class FalCatalog implements CatalogSource {
       cursor = payload.next_cursor;
     }
 
-    return all.slice(0, MAX_CANDIDATE_MODELS);
+    return [...all]
+      .sort((a, b) => a.endpoint_id.localeCompare(b.endpoint_id))
+      .slice(0, MAX_CANDIDATE_MODELS);
   }
 
   private async fetchPricingMap(
     endpointIds: string[]
   ): Promise<Map<string, { amount: number; unit?: string }>> {
     const priceMap = new Map<string, { amount: number; unit?: string }>();
+    const sortedEndpointIds = [...endpointIds].sort((a, b) => a.localeCompare(b));
 
-    for (const chunk of chunked(endpointIds, PRICING_CHUNK_SIZE)) {
+    for (const chunk of chunked(sortedEndpointIds, PRICING_CHUNK_SIZE)) {
       await this.fetchPricingForChunk(chunk, priceMap);
     }
 
@@ -178,8 +181,17 @@ export class FalCatalog implements CatalogSource {
 
   private falUnitToPricingType(category: string, unit?: string): string {
     const normalizedUnit = unit?.toLowerCase() ?? "";
+    if (normalizedUnit.includes("character")) {
+      return "per_character";
+    }
+    if (normalizedUnit.includes("minute")) {
+      return "per_minute";
+    }
     if (normalizedUnit.includes("second")) {
       return "per_second";
+    }
+    if (normalizedUnit.includes("image")) {
+      return "per_image";
     }
 
     const normalized = category.toLowerCase();
@@ -286,6 +298,14 @@ export class FalCatalog implements CatalogSource {
         error instanceof WhichModelError &&
         error.exitCode === ExitCode.NETWORK_ERROR &&
         /\(status 404\)/.test(error.message);
+      const isRateLimited =
+        error instanceof WhichModelError &&
+        error.exitCode === ExitCode.NETWORK_ERROR &&
+        /\(status 429\)/.test(error.message);
+
+      if (isRateLimited) {
+        return;
+      }
 
       if (!isNotFound) {
         throw error;
@@ -397,13 +417,4 @@ function chunked<T>(values: T[], size: number): T[][] {
   }
 
   return chunks;
-}
-
-function isSupportedFalCategory(category: string | undefined): boolean {
-  if (!category) {
-    return false;
-  }
-
-  const normalized = category.toLowerCase();
-  return normalized.includes("image") || normalized.includes("video");
 }

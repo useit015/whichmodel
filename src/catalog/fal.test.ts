@@ -32,6 +32,10 @@ describe("FalCatalog", () => {
               metadata: { display_name: "Kling v2", category: "text-to-video" },
             },
             {
+              endpoint_id: "fal-ai/whisper-v3",
+              metadata: { display_name: "Whisper v3", category: "audio-to-text" },
+            },
+            {
               endpoint_id: "fal-ai/training/sdxl",
               metadata: { display_name: "SDXL Training", category: "training" },
             },
@@ -56,6 +60,12 @@ describe("FalCatalog", () => {
               unit: "seconds",
               currency: "USD",
             },
+            {
+              endpoint_id: "fal-ai/whisper-v3",
+              unit_price: 0.006,
+              unit: "minutes",
+              currency: "USD",
+            },
           ],
           has_more: false,
           next_cursor: null,
@@ -74,12 +84,16 @@ describe("FalCatalog", () => {
 
     const models = await catalog.fetch();
 
-    expect(models).toHaveLength(2);
-    expect(models[0]?.id).toBe("fal::black-forest-labs/flux-1.1-pro");
-    expect(models[0]?.modality).toBe("image");
-    expect(models[1]?.id).toBe("fal::kling-ai/kling-v2");
-    expect(models[1]?.modality).toBe("video");
-    expect(models[1]?.pricing).toMatchObject({ type: "video", perSecond: 0.6 });
+    expect(models).toHaveLength(3);
+    const flux = models.find((model) => model.id === "fal::black-forest-labs/flux-1.1-pro");
+    const kling = models.find((model) => model.id === "fal::kling-ai/kling-v2");
+    const whisper = models.find((model) => model.id === "fal::fal-ai/whisper-v3");
+
+    expect(flux?.modality).toBe("image");
+    expect(kling?.modality).toBe("video");
+    expect(kling?.pricing).toMatchObject({ type: "video", perSecond: 0.6 });
+    expect(whisper?.modality).toBe("audio_stt");
+    expect(whisper?.pricing).toMatchObject({ type: "audio", perMinute: 0.006 });
   });
 
   it("follows model pagination using cursor", async () => {
@@ -257,5 +271,39 @@ describe("FalCatalog", () => {
       message: "Timeout fetching model catalog from fal.ai.",
     });
     expect(fetchImpl).toHaveBeenCalledTimes(3);
+  });
+
+  it("skips rate-limited pricing chunks instead of failing the whole fetch", async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.includes("/v1/models?")) {
+        return mockResponse(200, {
+          models: [
+            {
+              endpoint_id: "fal-ai/model-a",
+              metadata: { display_name: "Model A", category: "text-to-image" },
+            },
+          ],
+          has_more: false,
+          next_cursor: null,
+        });
+      }
+
+      if (url.includes("/v1/models/pricing?")) {
+        return mockResponse(429, {});
+      }
+
+      return mockResponse(404, {});
+    });
+
+    const catalog = new FalCatalog({
+      apiKey: "fal_test",
+      fetchImpl,
+      retryDelaysMs: [0, 0],
+      sleep: async () => {},
+    });
+
+    const models = await catalog.fetch();
+    expect(models).toEqual([]);
   });
 });
