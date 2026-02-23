@@ -115,7 +115,7 @@ npm run dev -- "test" --verbose
 - [x] JSON output matches schema
 - [x] Terminal output matches examples
 - [x] Fallback mode works when LLM fails
-- [ ] All error cases have helpful messages
+- [x] All error cases have helpful messages
 - [x] Cost per recommendation <$0.01
 - [ ] All 20+ modality detection tests pass
 
@@ -128,7 +128,7 @@ npm run dev -- "test" --verbose
 - [x] M1.6 Terminal formatter
 - [x] M1.7 JSON formatter
 - [x] M1.8 CLI entry point
-- [ ] M1.9 Error handling (partial)
+- [x] M1.9 Error handling
 - [x] M1.10 Configuration (basic env/config support implemented)
 
 ---
