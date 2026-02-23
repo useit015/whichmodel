@@ -47,7 +47,7 @@ export async function requestRecommendationCompletion(
         if (response.status === 401) {
           throw new WhichModelError(
             "Invalid OpenRouter API key.",
-            ExitCode.GENERAL_ERROR,
+            ExitCode.LLM_FAILED,
             "Check your key at https://openrouter.ai/keys"
           );
         }
@@ -55,7 +55,7 @@ export async function requestRecommendationCompletion(
         if (response.status === 402) {
           throw new WhichModelError(
             "Insufficient credits in your OpenRouter account.",
-            ExitCode.GENERAL_ERROR,
+            ExitCode.LLM_FAILED,
             "Add credits at https://openrouter.ai/credits"
           );
         }

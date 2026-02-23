@@ -38,7 +38,7 @@ describe("requestRecommendationCompletion", () => {
     expect(result.usage).toEqual({ promptTokens: 100, completionTokens: 20 });
   });
 
-  it("throws general error on 401", async () => {
+  it("maps 401 to LLM_FAILED so fallback can execute", async () => {
     const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(mockResponse(401, {}));
 
     await expect(
@@ -50,7 +50,7 @@ describe("requestRecommendationCompletion", () => {
         fetchImpl,
         retryDelaysMs: [0],
       })
-    ).rejects.toMatchObject({ exitCode: ExitCode.GENERAL_ERROR });
+    ).rejects.toMatchObject({ exitCode: ExitCode.LLM_FAILED });
   });
 
   it("retries 5xx and then fails with LLM_FAILED", async () => {
