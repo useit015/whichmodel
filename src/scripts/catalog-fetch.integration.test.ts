@@ -25,11 +25,11 @@ describe("catalog-fetch source validation", () => {
     );
   });
 
-  it("fails for valid but unsupported phase 2 sources", () => {
-    const result = runCatalogFetch(["--sources", "replicate"]);
+  it("fails for currently unsupported sources", () => {
+    const result = runCatalogFetch(["--sources", "together"]);
 
     expect(result.status).toBe(2);
-    expect(result.stderr).toContain("Error: Source(s) not supported in Phase 2: replicate.");
-    expect(result.stderr).toContain("Use --sources openrouter,fal");
+    expect(result.stderr).toContain("Error: Source(s) not yet supported: together.");
+    expect(result.stderr).toContain("Use --sources openrouter,fal,replicate");
   });
 });

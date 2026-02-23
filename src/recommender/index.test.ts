@@ -284,5 +284,8 @@ describe("recommend", () => {
     expect(result.recommendation.alternativesInOtherModalities).toContain(
       "set FAL_API_KEY"
     );
+    expect(result.recommendation.alternativesInOtherModalities).toContain(
+      "set REPLICATE_API_TOKEN"
+    );
   });
 });

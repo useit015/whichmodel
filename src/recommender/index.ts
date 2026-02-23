@@ -149,6 +149,19 @@ function attachMissingModalityGuidance(
     guidanceLines.push("Add fal media models with --sources openrouter,fal and set FAL_API_KEY.");
   }
 
+  if (
+    (detected === "image" ||
+      detected === "video" ||
+      detected === "audio_tts" ||
+      detected === "audio_stt" ||
+      detected === "audio_generation") &&
+    !catalogSources.includes("replicate")
+  ) {
+    guidanceLines.push(
+      "Add Replicate media coverage with --sources openrouter,replicate and set REPLICATE_API_TOKEN."
+    );
+  }
+
   guidanceLines.push("Broaden sources or force a different modality with --modality.");
   const guidance = guidanceLines.join(" ");
 

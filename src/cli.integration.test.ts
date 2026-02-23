@@ -99,12 +99,12 @@ describe("CLI integration error handling", () => {
     expect(result.stderr).toContain("Valid sources: openrouter, fal, replicate, elevenlabs, together");
   });
 
-  it("exits with code 2 for phase-unsupported sources", () => {
-    const result = runCLI(["task", "--sources", "replicate"]);
+  it("exits with code 2 for unsupported sources", () => {
+    const result = runCLI(["task", "--sources", "together"]);
 
     expect(result.status).toBe(2);
-    expect(result.stderr).toContain("Error: Source(s) not supported in Phase 2: replicate.");
-    expect(result.stderr).toContain("Use --sources openrouter,fal");
+    expect(result.stderr).toContain("Error: Source(s) not yet supported: together.");
+    expect(result.stderr).toContain("Use --sources openrouter,fal,replicate");
   });
 
   it("exits with code 3 when fal source is selected but FAL_API_KEY is missing", () => {
@@ -116,6 +116,17 @@ describe("CLI integration error handling", () => {
     expect(result.status).toBe(3);
     expect(result.stderr).toContain("Error: FAL_API_KEY is not set.");
     expect(result.stderr).toContain("Set FAL_API_KEY and retry.");
+  });
+
+  it("exits with code 3 when replicate source is selected but REPLICATE_API_TOKEN is missing", () => {
+    const result = runCLI(["task", "--sources", "replicate"], {
+      OPENROUTER_API_KEY: "sk-or-test",
+      REPLICATE_API_TOKEN: undefined,
+    });
+
+    expect(result.status).toBe(3);
+    expect(result.stderr).toContain("Error: REPLICATE_API_TOKEN is not set.");
+    expect(result.stderr).toContain("Set REPLICATE_API_TOKEN and retry.");
   });
 
 });

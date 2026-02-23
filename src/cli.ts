@@ -3,6 +3,7 @@ import ora from "ora";
 import { FalCatalog } from "./catalog/fal.js";
 import { mergeCatalogModels } from "./catalog/merge.js";
 import { OpenRouterCatalog } from "./catalog/openrouter.js";
+import { ReplicateCatalog } from "./catalog/replicate.js";
 import {
   DEFAULT_RECOMMENDER_MODEL,
   getConfig,
@@ -34,9 +35,9 @@ const VALID_MODALITIES: Modality[] = [
 ];
 
 const VALID_SOURCES = ["openrouter", "fal", "replicate", "elevenlabs", "together"] as const;
-const PHASE2_SUPPORTED_SOURCES = ["openrouter", "fal"] as const;
+const SUPPORTED_SOURCES = ["openrouter", "fal", "replicate"] as const;
 const VALID_SOURCE_SET = new Set<string>(VALID_SOURCES);
-const PHASE2_SUPPORTED_SOURCE_SET = new Set<string>(PHASE2_SUPPORTED_SOURCES);
+const SUPPORTED_SOURCE_SET = new Set<string>(SUPPORTED_SOURCES);
 const MAX_TASK_LENGTH = 2000;
 
 interface RecommendCLIOptions {
@@ -396,16 +397,16 @@ function parseSources(sourcesArg?: string): string[] {
 }
 
 function validateSupportedSources(sources: string[]): void {
-  const unsupported = sources.filter((source) => !PHASE2_SUPPORTED_SOURCE_SET.has(source));
+  const unsupported = sources.filter((source) => !SUPPORTED_SOURCE_SET.has(source));
 
   if (unsupported.length === 0) {
     return;
   }
 
   throw new WhichModelError(
-    `Source(s) not supported in Phase 2: ${unsupported.join(", ")}.`,
+    `Source(s) not yet supported: ${unsupported.join(", ")}.`,
     ExitCode.INVALID_ARGUMENTS,
-    `Use --sources ${PHASE2_SUPPORTED_SOURCES.join(",")}`
+    `Use --sources ${SUPPORTED_SOURCES.join(",")}`
   );
 }
 
@@ -428,10 +429,18 @@ async function fetchCatalogModels(sources: string[], config: Config): Promise<Mo
       continue;
     }
 
+    if (source === "replicate") {
+      sourceFetchers.push({
+        source,
+        fetch: async () => new ReplicateCatalog({ apiToken: config.replicateApiToken }).fetch(),
+      });
+      continue;
+    }
+
     throw new WhichModelError(
       `Unsupported source '${source}'.`,
       ExitCode.INVALID_ARGUMENTS,
-      `Use --sources ${PHASE2_SUPPORTED_SOURCES.join(",")}`
+      `Use --sources ${SUPPORTED_SOURCES.join(",")}`
     );
   }
 

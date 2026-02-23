@@ -1,11 +1,12 @@
 import { FalCatalog } from "../catalog/fal.js";
 import { mergeCatalogModels } from "../catalog/merge.js";
 import { OpenRouterCatalog } from "../catalog/openrouter.js";
+import { ReplicateCatalog } from "../catalog/replicate.js";
 import { getConfig } from "../config.js";
 import { ExitCode, WhichModelError, type ModelEntry } from "../types.js";
 
 const VALID_SOURCES = ["openrouter", "fal", "replicate", "elevenlabs", "together"] as const;
-const SUPPORTED_SOURCES = ["openrouter", "fal"] as const;
+const SUPPORTED_SOURCES = ["openrouter", "fal", "replicate"] as const;
 const VALID_SOURCE_SET = new Set<string>(VALID_SOURCES);
 const SUPPORTED_SOURCE_SET = new Set<string>(SUPPORTED_SOURCES);
 
@@ -22,11 +23,14 @@ async function main(): Promise<void> {
       if (source === "fal") {
         return new FalCatalog({ apiKey: config.falApiKey }).fetch();
       }
+      if (source === "replicate") {
+        return new ReplicateCatalog({ apiToken: config.replicateApiToken }).fetch();
+      }
 
       throw new WhichModelError(
         `Unsupported source '${source}'.`,
         ExitCode.INVALID_ARGUMENTS,
-        "Use --sources openrouter,fal"
+        "Use --sources openrouter,fal,replicate"
       );
     },
   }));
@@ -122,7 +126,7 @@ export function parseSourcesArg(args: string[]): string[] {
   const unsupported = normalizedSources.filter((source) => !SUPPORTED_SOURCE_SET.has(source));
   if (unsupported.length > 0) {
     throw new WhichModelError(
-      `Source(s) not supported in Phase 2: ${unsupported.join(", ")}.`,
+      `Source(s) not yet supported: ${unsupported.join(", ")}.`,
       ExitCode.INVALID_ARGUMENTS,
       `Use --sources ${SUPPORTED_SOURCES.join(",")}`
     );

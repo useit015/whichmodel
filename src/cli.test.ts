@@ -103,10 +103,11 @@ describe("validateSupportedSources", () => {
   it("accepts supported phase 2 sources", () => {
     expect(() => validateSupportedSources(["openrouter"])).not.toThrow();
     expect(() => validateSupportedSources(["openrouter", "fal"])).not.toThrow();
+    expect(() => validateSupportedSources(["openrouter", "replicate"])).not.toThrow();
   });
 
-  it("rejects unsupported phase 2 sources", () => {
-    expect(() => validateSupportedSources(["openrouter", "replicate"])).toThrowError(
+  it("rejects unsupported sources", () => {
+    expect(() => validateSupportedSources(["openrouter", "together"])).toThrowError(
       expect.objectContaining({
         exitCode: ExitCode.INVALID_ARGUMENTS,
       })
