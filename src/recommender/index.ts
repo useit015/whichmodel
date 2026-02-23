@@ -52,6 +52,7 @@ export async function recommend(options: RecommendOptions): Promise<RecommendRes
     );
   }
 
+  const recommendationStartedAt = Date.now();
   const compressed = compressForLLM(models);
   const grouped = groupByModality(compressed);
 
@@ -114,6 +115,7 @@ export async function recommend(options: RecommendOptions): Promise<RecommendRes
       recommendationCostUsd,
       promptTokens,
       completionTokens,
+      recommendationLatencyMs: Date.now() - recommendationStartedAt,
       catalogSources,
       catalogTotalModels: models.length,
       catalogModelsInModality,

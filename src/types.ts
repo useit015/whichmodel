@@ -266,6 +266,9 @@ export interface RecommendationMeta {
   /** Number of completion tokens used */
   completionTokens?: number;
 
+  /** Recommender runtime in milliseconds */
+  recommendationLatencyMs?: number;
+
   /** Catalog sources that were queried */
   catalogSources: string[];
 

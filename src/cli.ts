@@ -73,6 +73,7 @@ program
   .option("-v, --verbose", "Show extra recommendation metadata")
   .option("--no-color", "Disable colored output")
   .action(async (taskWords: string[], options: RecommendCLIOptions) => {
+    const runStartedAt = Date.now();
     try {
       const task = taskWords.join(" ").trim();
       validateTask(task);
@@ -89,7 +90,9 @@ program
       }
 
       const spinner = ora("Fetching model catalog...").start();
+      const catalogFetchStartedAt = Date.now();
       const allModels = await fetchCatalogModels(sources, config);
+      const catalogFetchLatencyMs = Date.now() - catalogFetchStartedAt;
       let models = applyExclusions(allModels, options.exclude);
       models = applyModelConstraints(models, constraints);
 
@@ -128,6 +131,9 @@ program
         completionTokens: result.meta.completionTokens,
         verbose: Boolean(options.verbose),
         noColor: options.color === false || Boolean(process.env.NO_COLOR),
+        recommendationLatencyMs: result.meta.recommendationLatencyMs,
+        catalogFetchLatencyMs,
+        totalLatencyMs: Date.now() - runStartedAt,
       });
       console.log(output);
     } catch (error) {

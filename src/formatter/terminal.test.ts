@@ -47,4 +47,21 @@ describe("formatTerminal", () => {
     expect(output).toContain("🏆 Best —");
     expect(output).toContain("⚡ This recommendation cost $0.0030");
   });
+
+  it("renders verbose token and timing metadata", () => {
+    const output = formatTerminal(recommendation, {
+      recommenderModel: "deepseek/deepseek-v3.2",
+      cost: 0.003,
+      verbose: true,
+      noColor: true,
+      promptTokens: 1000,
+      completionTokens: 200,
+      catalogFetchLatencyMs: 45,
+      recommendationLatencyMs: 120,
+      totalLatencyMs: 180,
+    });
+
+    expect(output).toContain("Tokens: prompt=1000, completion=200");
+    expect(output).toContain("Timing: catalog=45ms, recommend=120ms, total=180ms");
+  });
 });

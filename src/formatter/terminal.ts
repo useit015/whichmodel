@@ -6,6 +6,9 @@ export interface TerminalMeta {
   cost: number;
   promptTokens?: number;
   completionTokens?: number;
+  recommendationLatencyMs?: number;
+  catalogFetchLatencyMs?: number;
+  totalLatencyMs?: number;
   verbose?: boolean;
   noColor?: boolean;
 }
@@ -50,6 +53,20 @@ export function formatTerminal(rec: Recommendation, meta: TerminalMeta): string 
         `Tokens: prompt=${meta.promptTokens ?? "n/a"}, completion=${meta.completionTokens ?? "n/a"}`
       )
     );
+
+    const timingParts: string[] = [];
+    if (typeof meta.catalogFetchLatencyMs === "number") {
+      timingParts.push(`catalog=${meta.catalogFetchLatencyMs}ms`);
+    }
+    if (typeof meta.recommendationLatencyMs === "number") {
+      timingParts.push(`recommend=${meta.recommendationLatencyMs}ms`);
+    }
+    if (typeof meta.totalLatencyMs === "number") {
+      timingParts.push(`total=${meta.totalLatencyMs}ms`);
+    }
+    if (timingParts.length > 0) {
+      lines.push(c.dim(`Timing: ${timingParts.join(", ")}`));
+    }
   }
 
   return lines.join("\n");

@@ -187,6 +187,9 @@ describe("recommend", () => {
       "openrouter::deepseek/deepseek-v3.2"
     );
     expect(result.meta.promptTokens).toBe(1000);
+    expect(result.meta.recommendationCostUsd).toBeCloseTo(0.000326, 9);
+    expect(result.meta.recommendationLatencyMs).toBeTypeOf("number");
+    expect(result.meta.recommendationLatencyMs).toBeGreaterThanOrEqual(0);
   });
 
   it("falls back when llm fails", async () => {
