@@ -129,4 +129,17 @@ describe("CLI integration error handling", () => {
     expect(result.stderr).toContain("Set REPLICATE_API_TOKEN and retry.");
   });
 
+  it("does not leak API keys in CLI output on failures", () => {
+    const openrouterKey = "sk-or-super-secret-example-key";
+    const result = runCLI(["task", "--sources", "fal", "--verbose"], {
+      OPENROUTER_API_KEY: openrouterKey,
+      FAL_API_KEY: undefined,
+    });
+
+    expect(result.status).toBe(3);
+    expect(result.stdout).not.toContain(openrouterKey);
+    expect(result.stderr).not.toContain(openrouterKey);
+    expect(result.stderr).toContain("Error: FAL_API_KEY is not set.");
+  });
+
 });
