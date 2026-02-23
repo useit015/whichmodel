@@ -101,6 +101,11 @@ export async function recommend(options: RecommendOptions): Promise<RecommendRes
   const catalogModelsInModality = models.filter(
     (model) => model.modality === detectedModality
   ).length;
+  recommendation = attachMissingModalityGuidance(
+    recommendation,
+    catalogSources,
+    catalogModelsInModality
+  );
 
   return {
     recommendation,
@@ -115,6 +120,43 @@ export async function recommend(options: RecommendOptions): Promise<RecommendRes
       timestamp: new Date().toISOString(),
       version: TOOL_VERSION,
     },
+  };
+}
+
+function attachMissingModalityGuidance(
+  recommendation: Recommendation,
+  catalogSources: string[],
+  catalogModelsInModality: number
+): Recommendation {
+  if (catalogModelsInModality > 0) {
+    return recommendation;
+  }
+
+  const detected = recommendation.taskAnalysis.detectedModality;
+  const sourcesLabel = catalogSources.join(", ");
+  const guidanceLines = [
+    `No '${detected}' models are available in configured sources (${sourcesLabel}).`,
+  ];
+
+  if (
+    (detected === "image" ||
+      detected === "video" ||
+      detected === "audio_tts" ||
+      detected === "audio_stt" ||
+      detected === "audio_generation") &&
+    !catalogSources.includes("fal")
+  ) {
+    guidanceLines.push("Add fal media models with --sources openrouter,fal and set FAL_API_KEY.");
+  }
+
+  guidanceLines.push("Broaden sources or force a different modality with --modality.");
+  const guidance = guidanceLines.join(" ");
+
+  return {
+    ...recommendation,
+    alternativesInOtherModalities: recommendation.alternativesInOtherModalities
+      ? `${recommendation.alternativesInOtherModalities} ${guidance}`
+      : guidance,
   };
 }
 
