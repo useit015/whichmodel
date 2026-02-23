@@ -1,0 +1,35 @@
+{
+  "taskAnalysis": {
+    "summary": "Legal document summarization with risk identification",
+    "detectedModality": "text",
+    "modalityReasoning": "Task requires text output summarizing legal documents, not video or audio content",
+    "keyRequirements": [
+      "long context length",
+      "strong reasoning capability",
+      "accuracy and reduced hallucination",
+      "structured output for risk flags"
+    ],
+    "costFactors": "Input-heavy task as documents can be 50-100 pages; need to process entire document for context"
+  },
+  "recommendations": {
+    "cheapest": {
+      "id": "openrouter::deepseek/deepseek-v3.2",
+      "reason": "Strong reasoning capability at the lowest price point. 164K context window handles most contracts without chunking. Good accuracy for general legal analysis, though may occasionally miss subtle legal nuances in edge cases.",
+      "pricingSummary": "$0.25 / $0.38 per 1M tokens (in/out)",
+      "estimatedCost": "~$8/mo for 200 contracts at ~15K tokens each"
+    },
+    "balanced": {
+      "id": "openrouter::google/gemini-2.5-flash",
+      "reason": "Million-token context means no chunking is ever needed, even for the longest contracts. Strong analytical reasoning and excellent structured output capabilities. Great balance of quality and cost for production workloads.",
+      "pricingSummary": "$0.30 / $2.50 per 1M tokens (in/out)",
+      "estimatedCost": "~$18/mo for 200 contracts at ~15K tokens each"
+    },
+    "best": {
+      "id": "openrouter::anthropic/claude-sonnet-4",
+      "reason": "Best-in-class document comprehension and nuanced analysis. Excels at catching edge cases, understanding legal implications, and providing structured risk assessments. Highest accuracy for critical legal work.",
+      "pricingSummary": "$3.00 / $15.00 per 1M tokens (in/out)",
+      "estimatedCost": "~$420/mo for 200 contracts at ~15K tokens each"
+    }
+  },
+  "alternativesInOtherModalities": null
+}
