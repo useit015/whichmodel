@@ -1,8 +1,8 @@
 # Normalization Rules
 
-> **Version:** 1.0
-> **Last Updated:** 2025-02-23
-> **Status:** Production (Phase 1)
+> **Version:** 1.1
+> **Last Updated:** 2026-02-24
+> **Status:** Stable (v1.0.0)
 
 ---
 

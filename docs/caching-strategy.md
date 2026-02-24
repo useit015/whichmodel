@@ -1,204 +1,61 @@
 # Caching Strategy
 
-> **Version:** 1.0
-> **Last Updated:** 2025-02-23
-> **Status:** Phase 3 (Not yet implemented)
-
----
+> **Version:** 1.1
+> **Last Updated:** 2026-02-24
+> **Status:** Implemented (v1.0.0)
 
 ## Overview
 
-`whichmodel` caches catalog data to reduce API calls and improve response time. This document defines the caching strategy.
+Catalog responses are cached on disk per source to reduce API calls and speed up repeated runs.
 
----
+## Locations
 
-## Cache Location
+- macOS/Linux: `~/.cache/whichmodel/` (or `$XDG_CACHE_HOME/whichmodel/`)
+- Windows: `%LOCALAPPDATA%\whichmodel\cache\`
 
-| OS | Location |
-|----|----------|
-| macOS/Linux | `~/.cache/whichmodel/` |
-| Windows | `%LOCALAPPDATA%\whichmodel\cache\` |
+## Files
 
----
+- `openrouter-catalog.json`
+- `fal-catalog.json`
+- `replicate-catalog.json`
 
-## Cache Files
+## Cache Entry Schema
 
-```
-~/.cache/whichmodel/
-├── openrouter-catalog.json    # OpenRouter models
-├── fal-catalog.json           # fal.ai models
-├── replicate-catalog.json     # Replicate models
-└── metadata.json              # Cache metadata
-```
-
----
-
-## Cache Structure
-
-### Catalog Cache
-
-```typescript
-interface CatalogCache {
-  source: string;               // "openrouter" | "fal" | "replicate"
-  timestamp: number;            // Unix epoch seconds
-  ttl: number;                  // TTL in seconds
-  data: ModelEntry[];           // Normalized model entries
+```json
+{
+  "data": ["ModelEntry", "..."],
+  "timestamp": 1771906657,
+  "ttl": 3600,
+  "source": "openrouter"
 }
 ```
 
-### Metadata File
+## Rules
 
-```typescript
-interface CacheMetadata {
-  version: string;              // Cache format version
-  sources: {
-    [sourceId: string]: {
-      timestamp: number;
-      ttl: number;
-      modelCount: number;
-    };
-  };
-}
-```
+- Cache read succeeds only when:
+  - file is valid JSON
+  - required fields are present
+  - entry is not expired
+  - cached `data` array is non-empty
+- Empty cache payloads are ignored.
+- Source adapters do not persist empty normalized model lists.
 
----
+## TTL
 
-## Cache TTL
-
-| Source | Default TTL | Reason |
-|--------|-------------|--------|
-| OpenRouter | 1 hour (3600s) | Models change infrequently |
-| fal.ai | 1 hour (3600s) | Models change infrequently |
-| Replicate | 1 hour (3600s) | Models change infrequently |
-
-**Configurable via:** `WHICHMODEL_CACHE_TTL` environment variable
-
----
-
-## Cache Operations
-
-### Read Cache
-
-```typescript
-async function readCache(source: string): Promise<ModelEntry[] | null> {
-  const cachePath = getCachePath(source);
-
-  try {
-    const content = await fs.readFile(cachePath, "utf-8");
-    const cache: CatalogCache = JSON.parse(content);
-
-    // Check if expired
-    const now = Math.floor(Date.now() / 1000);
-    if (now - cache.timestamp > cache.ttl) {
-      return null; // Cache expired
-    }
-
-    return cache.data;
-  } catch {
-    return null; // Cache doesn't exist or is invalid
-  }
-}
-```
-
-### Write Cache
-
-```typescript
-async function writeCache(
-  source: string,
-  data: ModelEntry[],
-  ttl: number
-): Promise<void> {
-  const cachePath = getCachePath(source);
-
-  const cache: CatalogCache = {
-    source,
-    timestamp: Math.floor(Date.now() / 1000),
-    ttl,
-    data,
-  };
-
-  await fs.mkdir(path.dirname(cachePath), { recursive: true });
-  await fs.writeFile(cachePath, JSON.stringify(cache, null, 2));
-}
-```
-
-### Invalidate Cache
-
-```typescript
-async function invalidateCache(source?: string): Promise<void> {
-  if (source) {
-    const cachePath = getCachePath(source);
-    await fs.unlink(cachePath).catch(() => {});
-  } else {
-    // Clear all caches
-    const cacheDir = getCacheDir();
-    await fs.rm(cacheDir, { recursive: true }).catch(() => {});
-  }
-}
-```
-
----
-
-## Cache Bypass
-
-User can bypass cache with:
+Default TTL: `3600` seconds.
+Override with:
 
 ```bash
-# Force fresh fetch
-whichmodel "task" --no-cache
-
-# Or clear cache first
-whichmodel cache --clear
+export WHICHMODEL_CACHE_TTL=1800
 ```
 
----
+## CLI Controls
 
-## Cache Statistics
+- Bypass cache once: `--no-cache`
+- View cache stats: `whichmodel cache --stats`
+- Clear cache: `whichmodel cache --clear`
 
-```bash
-whichmodel cache --stats
-```
+## Operational Notes
 
-```
-Cache Statistics:
-  Location: ~/.cache/whichmodel/
-
-  Source         Age        TTL    Models
-  ───────────────────────────────────────
-  openrouter     45m ago    1h     312
-  fal            2h ago     1h     47 (stale)
-  replicate      -          -      (not cached)
-```
-
----
-
-## Implementation Stub
-
-```typescript
-// src/catalog/cache.ts
-
-export async function readCache(source: string): Promise<ModelEntry[] | null> {
-  // TODO: Implement in Phase 3
-  return null;
-}
-
-export async function writeCache(
-  source: string,
-  data: ModelEntry[],
-  ttl: number
-): Promise<void> {
-  // TODO: Implement in Phase 3
-}
-
-export async function invalidateCache(source?: string): Promise<void> {
-  // TODO: Implement in Phase 3
-}
-```
-
----
-
-## Changelog
-
-| Version | Date | Changes |
-|---------|------|---------|
-| 1.0 | 2025-02-23 | Initial caching strategy |
+- `--no-cache` is global and applies to subcommands.
+- Cache writes are atomic (`.tmp` file then rename) and use restrictive permissions (`0600` for files, `0700` for directories).
