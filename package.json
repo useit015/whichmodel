@@ -22,9 +22,12 @@
     "node": ">=20.0.0"
   },
   "dependencies": {
+    "boxen": "^8.0.1",
     "chalk": "^5.4.0",
     "commander": "^13.0.0",
-    "ora": "^8.2.0"
+    "neverthrow": "^8.2.0",
+    "ora": "^8.2.0",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "@types/node": "^22.10.1",
