@@ -1,11 +1,22 @@
 # whichmodel
 
-`whichmodel` is a TypeScript CLI that recommends AI models from a natural-language task.
+`whichmodel` is a CLI that tells you which AI model to use for a task.
 
-It fetches live catalogs, analyzes your task, and returns 3 picks:
-- Cheapest
-- Balanced
-- Best
+Describe what you want to build, and it returns 3 practical recommendations:
+- cheapest
+- balanced
+- best
+
+It supports text, image, video, audio, vision, embedding, and multimodal workloads.
+
+## Why Use It
+
+Choosing a model is hard because price, quality, and capabilities change fast. `whichmodel` helps you decide quickly with live catalog data and task-aware reasoning.
+
+Good for:
+- picking a model before building a feature
+- comparing cost/performance tradeoffs
+- automating model selection in scripts/agents
 
 ## Status
 
@@ -29,20 +40,59 @@ npx whichmodel "summarize legal contracts"
 
 ```bash
 export OPENROUTER_API_KEY="sk-or-v1-..."
-
 whichmodel "summarize legal contracts and flag risks"
 ```
 
-JSON output:
+Get JSON:
 
 ```bash
 whichmodel "summarize legal contracts and flag risks" --json
 ```
 
-Verbose metadata:
+Include extra metadata (tokens/cost/timing):
 
 ```bash
 whichmodel "summarize legal contracts and flag risks" --verbose
+```
+
+## Example Result (Terminal)
+
+```text
+🔍 Task Analysis
+   Modality: TEXT
+   Analyze legal contract text to produce summaries and identify potential risks.
+
+💰 Cheapest — openrouter::liquid/lfm-2.2-6b
+   Very low cost, acceptable for basic summarization tasks.
+
+⚖️ Balanced — openrouter::deepseek/deepseek-v3.2
+   Strong reasoning quality at a low price.
+
+🏆 Best — openrouter::qwen/qwen3-max-thinking
+   Highest quality for nuanced legal analysis.
+
+⚡ This recommendation cost $0.0075 (deepseek/deepseek-v3.2)
+```
+
+## Example Result (`--json`)
+
+```json
+{
+  "task": "summarize legal contracts and flag risks",
+  "taskAnalysis": {
+    "detectedModality": "text"
+  },
+  "recommendations": {
+    "cheapest": { "id": "openrouter::liquid/lfm-2.2-6b" },
+    "balanced": { "id": "openrouter::deepseek/deepseek-v3.2" },
+    "best": { "id": "openrouter::qwen/qwen3-max-thinking" }
+  },
+  "meta": {
+    "recommenderModel": "deepseek/deepseek-v3.2",
+    "recommendationCostUsd": 0.007495,
+    "version": "1.0.0"
+  }
+}
 ```
 
 ## Commands
@@ -59,7 +109,7 @@ whichmodel [task...] [options]
 whichmodel compare <modelA> <modelB> --task "..." [--json]
 ```
 
-Note: `compare` requires `OPENROUTER_API_KEY` because it uses an LLM comparison pass.
+`compare` requires `OPENROUTER_API_KEY` because it runs an LLM comparison pass.
 
 ### List
 
@@ -83,29 +133,29 @@ whichmodel cache --clear
 ## Main Options
 
 - `--json`: JSON output
-- `--verbose`: include tokens/cost/timing on recommendation output
+- `--verbose`: include extra recommendation metadata
 - `--modality <type>`: force modality
 - `--max-price <number>`: max unit price filter
 - `--min-context <tokens>`: min context length filter
-- `--min-resolution <WxH>`: min image/video resolution filter
+- `--min-resolution <WxH>`: min resolution filter for image/video
 - `--exclude <ids>`: exclude IDs (comma-separated, supports `*` suffix wildcard)
 - `--sources <list>`: catalog sources (comma-separated)
 - `--model <id>`: override recommender model
-- `--estimate <workload>`: override estimated costs with workload-based estimates
+- `--estimate <workload>`: workload-based cost estimation
 - `--no-color`: disable colored output
-- `--no-cache`: force fresh catalog fetch and bypass cache
+- `--no-cache`: bypass cache and fetch fresh catalog
 - `--update-recommender`: update default recommender model in config
 
-Global options like `--json`, `--no-color`, and `--no-cache` apply to subcommands as well.
+Global options like `--json`, `--no-color`, and `--no-cache` apply to subcommands.
 
 ## Sources
 
-Supported now:
+Supported:
 - `openrouter`
 - `fal`
 - `replicate`
 
-Known but not implemented yet:
+Recognized but not yet implemented:
 - `elevenlabs`
 - `together`
 
@@ -120,7 +170,7 @@ Optional by source:
 - `FAL_API_KEY`
 - `REPLICATE_API_TOKEN`
 
-`list` and `stats` can run without `OPENROUTER_API_KEY` when using public OpenRouter catalog access.
+`list` and `stats` can run without `OPENROUTER_API_KEY` when using OpenRouter's public catalog access.
 
 ## Modalities
 
