@@ -744,6 +744,11 @@ async function fetchCatalogModels(
             apiToken: config.replicateApiToken,
             noCache,
             cacheTtl: config.cacheTtl,
+            replicatePagePricing: config.replicatePagePricing,
+            replicatePriceTtlSeconds: config.replicatePriceTtlSeconds,
+            replicatePriceMaxStaleSeconds: config.replicatePriceMaxStaleSeconds,
+            replicatePriceFetchBudget: config.replicatePriceFetchBudget,
+            replicatePriceConcurrency: config.replicatePriceConcurrency,
           }).fetch(),
       });
       continue;

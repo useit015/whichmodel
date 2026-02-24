@@ -1,8 +1,22 @@
 import type { CatalogSource } from './source.js';
 import { normalizeReplicateModel } from './normalization.js';
 import { readCache, writeCache } from './cache.js';
-import { DEFAULT_CACHE_TTL_SECONDS } from '../config.js';
+import {
+  DEFAULT_CACHE_TTL_SECONDS,
+  DEFAULT_REPLICATE_PAGE_PRICING,
+  DEFAULT_REPLICATE_PRICE_CONCURRENCY,
+  DEFAULT_REPLICATE_PRICE_FETCH_BUDGET,
+  DEFAULT_REPLICATE_PRICE_MAX_STALE_SECONDS,
+  DEFAULT_REPLICATE_PRICE_TTL_SECONDS
+} from '../config.js';
 import { parseReplicateModelsResponse } from '../schemas/provider-schemas.js';
+import {
+  applyReplicatePricingUpdates,
+  readReplicatePricingCache,
+  resolveReplicatePricingEntry,
+  writeReplicatePricingCache
+} from './replicate-pricing-cache.js';
+import { fetchReplicatePagePricing } from './replicate-page-pricing.js';
 import {
   isAbortError,
   wait,
@@ -21,6 +35,7 @@ const DEFAULT_ENDPOINT = 'https://api.replicate.com/v1/models';
 const DEFAULT_TIMEOUT_MS = 10_000;
 const MAX_MODEL_PAGES = 8;
 const MAX_CANDIDATE_MODELS = 300;
+const REPLICATE_PAGE_TIMEOUT_MS = 3_000;
 
 type Sleep = (ms: number) => Promise<void>;
 
@@ -33,6 +48,11 @@ export interface ReplicateCatalogOptions {
   sleep?: Sleep;
   noCache?: boolean;
   cacheTtl?: number;
+  replicatePagePricing?: boolean;
+  replicatePriceTtlSeconds?: number;
+  replicatePriceMaxStaleSeconds?: number;
+  replicatePriceFetchBudget?: number;
+  replicatePriceConcurrency?: number;
 }
 
 export class ReplicateCatalog implements CatalogSource {
@@ -46,6 +66,11 @@ export class ReplicateCatalog implements CatalogSource {
   private readonly sleep: Sleep;
   private readonly noCache: boolean;
   private readonly cacheTtl: number;
+  private readonly replicatePagePricing: boolean;
+  private readonly replicatePriceTtlSeconds: number;
+  private readonly replicatePriceMaxStaleSeconds: number;
+  private readonly replicatePriceFetchBudget: number;
+  private readonly replicatePriceConcurrency: number;
 
   constructor(options: ReplicateCatalogOptions = {}) {
     this.apiToken = options.apiToken;
@@ -56,6 +81,17 @@ export class ReplicateCatalog implements CatalogSource {
     this.sleep = options.sleep ?? wait;
     this.noCache = options.noCache ?? false;
     this.cacheTtl = options.cacheTtl ?? DEFAULT_CACHE_TTL_SECONDS;
+    this.replicatePagePricing =
+      options.replicatePagePricing ?? DEFAULT_REPLICATE_PAGE_PRICING;
+    this.replicatePriceTtlSeconds =
+      options.replicatePriceTtlSeconds ?? DEFAULT_REPLICATE_PRICE_TTL_SECONDS;
+    this.replicatePriceMaxStaleSeconds =
+      options.replicatePriceMaxStaleSeconds ??
+      DEFAULT_REPLICATE_PRICE_MAX_STALE_SECONDS;
+    this.replicatePriceFetchBudget =
+      options.replicatePriceFetchBudget ?? DEFAULT_REPLICATE_PRICE_FETCH_BUDGET;
+    this.replicatePriceConcurrency =
+      options.replicatePriceConcurrency ?? DEFAULT_REPLICATE_PRICE_CONCURRENCY;
   }
 
   async fetch(): Promise<ModelEntry[]> {
@@ -75,7 +111,8 @@ export class ReplicateCatalog implements CatalogSource {
     }
 
     const rawModels = await this.fetchAllModels();
-    const models = rawModels
+    const enrichedRawModels = await this.enrichMissingPricing(rawModels);
+    const models = enrichedRawModels
       .map(model => normalizeReplicateModel(model))
       .filter((model): model is ModelEntry => model !== null);
 
@@ -84,6 +121,93 @@ export class ReplicateCatalog implements CatalogSource {
     }
 
     return models;
+  }
+
+  private async enrichMissingPricing(
+    rawModels: ReplicateModel[]
+  ): Promise<ReplicateModel[]> {
+    if (!this.replicatePagePricing) {
+      return rawModels;
+    }
+
+    const budget = Math.max(0, this.replicatePriceFetchBudget);
+    const concurrency = Math.max(1, this.replicatePriceConcurrency);
+    if (budget === 0) {
+      return rawModels;
+    }
+
+    const now = this.nowEpochSeconds();
+    let cache = await readReplicatePricingCache();
+    const refreshQueue: Array<{ key: string; model: ReplicateModel }> = [];
+
+    for (const model of rawModels) {
+      if (this.hasApiPricing(model)) {
+        continue;
+      }
+
+      const key = this.modelKey(model);
+      if (!key || key === '/') {
+        continue;
+      }
+
+      const lookup = resolveReplicatePricingEntry(
+        cache,
+        key,
+        now,
+        this.replicatePriceMaxStaleSeconds
+      );
+
+      if (lookup.state === 'fresh' || lookup.state === 'stale') {
+        this.applyEnrichedPricing(model, lookup.entry?.pricing);
+      }
+
+      if (lookup.state !== 'fresh' && refreshQueue.length < budget) {
+        refreshQueue.push({ key, model });
+      }
+    }
+
+    if (refreshQueue.length === 0) {
+      return rawModels;
+    }
+
+    const updates = await this.runWithConcurrency(refreshQueue, concurrency, async item => {
+      const result = await fetchReplicatePagePricing(item.key, {
+        fetchImpl: this.fetchImpl,
+        timeoutMs: REPLICATE_PAGE_TIMEOUT_MS
+      });
+      if (!result || Object.keys(result.pricing).length === 0) {
+        return null;
+      }
+
+      this.applyEnrichedPricing(item.model, result.pricing);
+      return {
+        modelKey: item.key,
+        pricing: result.pricing,
+        source: result.source
+      };
+    });
+
+    const validUpdates = updates.filter(
+      (
+        update
+      ): update is {
+        modelKey: string;
+        pricing: Record<string, number>;
+        source: 'billingConfig' | 'price-string';
+      } => update !== null
+    );
+
+    if (validUpdates.length > 0) {
+      cache = applyReplicatePricingUpdates(
+        cache,
+        validUpdates,
+        this.replicatePriceTtlSeconds,
+        now
+      );
+      await writeReplicatePricingCache(cache);
+    }
+
+    return rawModels;
   }
 
   private async fetchAllModels(): Promise<ReplicateModel[]> {
@@ -131,9 +255,78 @@ export class ReplicateCatalog implements CatalogSource {
   }
 
   private modelKey(model: ReplicateModel): string {
-    const owner = typeof model.owner === 'string' ? model.owner : '';
-    const name = typeof model.name === 'string' ? model.name : '';
+    const owner = typeof model.owner === 'string' ? model.owner.trim() : '';
+    const name = typeof model.name === 'string' ? model.name.trim() : '';
     return `${owner}/${name}`;
+  }
+
+  private hasApiPricing(model: ReplicateModel): boolean {
+    return (
+      this.hasNonEmptyPricing(model.pricing) ||
+      this.hasNonEmptyPricing(model.latest_version?.pricing)
+    );
+  }
+
+  private hasNonEmptyPricing(value: unknown): boolean {
+    if (value === null || value === undefined) {
+      return false;
+    }
+    if (typeof value === 'string') {
+      return value.trim().length > 0;
+    }
+    if (typeof value === 'number') {
+      return Number.isFinite(value);
+    }
+    if (Array.isArray(value)) {
+      return value.length > 0;
+    }
+    if (typeof value === 'object') {
+      return Object.keys(value as Record<string, unknown>).length > 0;
+    }
+    return false;
+  }
+
+  private applyEnrichedPricing(
+    model: ReplicateModel,
+    pricing: Record<string, number> | undefined
+  ): void {
+    if (!pricing || Object.keys(pricing).length === 0) {
+      return;
+    }
+    model.pricing = { ...pricing };
+  }
+
+  private nowEpochSeconds(): number {
+    return Math.floor(Date.now() / 1000);
+  }
+
+  private async runWithConcurrency<TItem, TResult>(
+    items: TItem[],
+    concurrency: number,
+    worker: (item: TItem) => Promise<TResult>
+  ): Promise<TResult[]> {
+    if (items.length === 0) {
+      return [];
+    }
+
+    const results = new Array<TResult>(items.length);
+    let index = 0;
+    const workers = Array.from({
+      length: Math.min(Math.max(1, concurrency), items.length)
+    }).map(async () => {
+      while (true) {
+        const current = index;
+        index += 1;
+        if (current >= items.length) {
+          return;
+        }
+
+        results[current] = await worker(items[current] as TItem);
+      }
+    });
+
+    await Promise.all(workers);
+    return results;
   }
 
   private toNextUrl(next: string | null | undefined): string | null {
