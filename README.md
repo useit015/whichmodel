@@ -1,27 +1,26 @@
 # whichmodel
 
-`whichmodel` is a CLI that tells you which AI model to use for a task.
+`whichmodel` helps you choose the right AI model fast.
 
-Describe what you want to build, and it returns 3 practical recommendations:
+You describe a task in plain English, and the CLI recommends:
 - cheapest
 - balanced
 - best
 
-It supports text, image, video, audio, vision, embedding, and multimodal workloads.
+It uses live provider catalogs and task-aware reasoning so you can make a decision quickly instead of manually comparing models for 30 minutes.
 
-## Why Use It
+## What You Get
 
-Choosing a model is hard because price, quality, and capabilities change fast. `whichmodel` helps you decide quickly with live catalog data and task-aware reasoning.
-
-Good for:
-- picking a model before building a feature
-- comparing cost/performance tradeoffs
-- automating model selection in scripts/agents
+- Task-aware recommendations (not just raw price sorting)
+- Multi-modality support: text, image, video, audio, vision, embedding, multimodal
+- Cost-aware picks with reasoning
+- Script-friendly JSON mode
+- Catalog exploration commands (`list`, `stats`, `compare`, `cache`)
 
 ## Status
 
 - Version: `1.0.0`
-- Release: Stable
+- Stability: Stable
 - Runtime: Node.js 20+
 
 ## Install
@@ -30,7 +29,7 @@ Good for:
 npm install -g whichmodel
 ```
 
-Or run without install:
+Or without installing:
 
 ```bash
 npx whichmodel "summarize legal contracts"
@@ -43,114 +42,167 @@ export OPENROUTER_API_KEY="sk-or-v1-..."
 whichmodel "summarize legal contracts and flag risks"
 ```
 
-Get JSON:
+JSON output:
 
 ```bash
 whichmodel "summarize legal contracts and flag risks" --json
 ```
 
-Include extra metadata (tokens/cost/timing):
+Verbose metadata (tokens/cost/timing):
 
 ```bash
 whichmodel "summarize legal contracts and flag risks" --verbose
 ```
 
-## Example Result (Terminal)
+## Example Recommendation Output
+
+Sample terminal output (captured on **February 24, 2026**, values may change with live catalogs):
 
 ```text
 🔍 Task Analysis
    Modality: TEXT
-   Analyze legal contract text to produce summaries and identify potential risks.
+   Analyze text-based legal contracts to produce summaries and identify potential risks.
 
-💰 Cheapest — openrouter::liquid/lfm-2.2-6b
-   Very low cost, acceptable for basic summarization tasks.
+💰 Cheapest — openrouter::liquid/lfm2-8b-a1b
+   $0.01 per 1M prompt tokens, $0.02 per 1M completion tokens
 
 ⚖️ Balanced — openrouter::deepseek/deepseek-v3.2
-   Strong reasoning quality at a low price.
+   $0.26 per 1M prompt tokens, $0.38 per 1M completion tokens
 
-🏆 Best — openrouter::qwen/qwen3-max-thinking
-   Highest quality for nuanced legal analysis.
+🏆 Best — openrouter::anthropic/claude-opus-4.6
+   $5 per 1M prompt tokens, $25 per 1M completion tokens
 
-⚡ This recommendation cost $0.0075 (deepseek/deepseek-v3.2)
+⚡ This recommendation cost $0.0076 (deepseek/deepseek-v3.2)
 ```
 
-## Example Result (`--json`)
+## Command Cookbook
+
+### 1. Recommend (default)
+
+```bash
+whichmodel "build a customer support chatbot" --json
+```
+
+### 2. Compare two models head-to-head
+
+```bash
+whichmodel compare \
+  "openrouter::anthropic/claude-sonnet-4" \
+  "openrouter::openai/gpt-4o" \
+  --task "write production-ready TypeScript API code" \
+  --json --no-cache
+```
+
+Sample JSON shape:
 
 ```json
 {
-  "task": "summarize legal contracts and flag risks",
-  "taskAnalysis": {
-    "detectedModality": "text"
+  "winner": "B",
+  "reasoning": "GPT-4o is more cost-effective for code generation...",
+  "modelA": {
+    "id": "openrouter::anthropic/claude-sonnet-4",
+    "name": "Anthropic: Claude Sonnet 4"
   },
-  "recommendations": {
-    "cheapest": { "id": "openrouter::liquid/lfm-2.2-6b" },
-    "balanced": { "id": "openrouter::deepseek/deepseek-v3.2" },
-    "best": { "id": "openrouter::qwen/qwen3-max-thinking" }
-  },
-  "meta": {
-    "recommenderModel": "deepseek/deepseek-v3.2",
-    "recommendationCostUsd": 0.007495,
-    "version": "1.0.0"
+  "modelB": {
+    "id": "openrouter::openai/gpt-4o",
+    "name": "OpenAI: GPT-4o"
   }
 }
 ```
 
-## Commands
-
-### Recommend (default)
+### 3. List models
 
 ```bash
-whichmodel [task...] [options]
+whichmodel list --source openrouter --limit 5 --no-cache
 ```
 
-### Compare
+Sample output (Feb 24, 2026):
+
+```text
+305 models (showing top 5, sorted by price)
+
+┌ ... ┐
+│ openrouter::liquid/lfm2-8b-a1b              │ LiquidAI: LFM2-8B-A1B │ $0.01 / $0.02 │
+│ openrouter::liquid/lfm-2.2-6b               │ LiquidAI: LFM2-2.6B   │ $0.01 / $0.02 │
+│ openrouter::ibm-granite/granite-4.0-h-micro │ IBM: Granite 4.0 ...  │ $0.02 / $0.11 │
+└ ... ┘
+```
+
+JSON mode:
 
 ```bash
-whichmodel compare <modelA> <modelB> --task "..." [--json]
+whichmodel list --source openrouter --limit 20 --json
 ```
 
-`compare` requires `OPENROUTER_API_KEY` because it runs an LLM comparison pass.
-
-### List
+### 4. Stats (catalog snapshot)
 
 ```bash
-whichmodel list [--modality <type>] [--source <name>] [--sort <price|name|context>] [--limit <n>] [--json]
+whichmodel stats --json --no-cache
 ```
 
-### Stats
+Sample output (Feb 24, 2026):
 
-```bash
-whichmodel stats [--json]
+```json
+{
+  "totalModels": 305,
+  "sources": ["openrouter"],
+  "byModality": {
+    "vision": { "count": 110, "priceRange": { "min": 0.04, "max": 150 } },
+    "text": { "count": 188, "priceRange": { "min": 0.01, "max": 30 } },
+    "multimodal": { "count": 7, "priceRange": { "min": 0.3, "max": 10 } }
+  }
+}
 ```
 
-### Cache
+### 5. Cache inspection and clear
 
 ```bash
 whichmodel cache --stats
 whichmodel cache --clear
 ```
 
+Sample stats output:
+
+```text
+Cache Statistics:
+  Location: /Users/oussmustaine/.cache/whichmodel
+
+  Source         Age        TTL    Models
+  ───────────────────────────────────────
+  fal            17m ago    3600s  2
+  openrouter     16m ago    3600s  305
+  replicate      17m ago    3600s  2
+```
+
+### 6. Update default recommender model
+
+```bash
+whichmodel --update-recommender
+```
+
+This analyzes current catalog candidates and updates your config only when a better default is found.
+
 ## Main Options
 
 - `--json`: JSON output
-- `--verbose`: include extra recommendation metadata
+- `--verbose`: add token/cost/timing metadata
 - `--modality <type>`: force modality
 - `--max-price <number>`: max unit price filter
 - `--min-context <tokens>`: min context length filter
 - `--min-resolution <WxH>`: min resolution filter for image/video
-- `--exclude <ids>`: exclude IDs (comma-separated, supports `*` suffix wildcard)
+- `--exclude <ids>`: exclude model IDs (comma-separated, supports `*` suffix wildcard)
 - `--sources <list>`: catalog sources (comma-separated)
 - `--model <id>`: override recommender model
-- `--estimate <workload>`: workload-based cost estimation
-- `--no-color`: disable colored output
-- `--no-cache`: bypass cache and fetch fresh catalog
-- `--update-recommender`: update default recommender model in config
+- `--estimate <workload>`: workload-based estimated costs
+- `--no-color`: disable color output
+- `--no-cache`: bypass cache and fetch fresh catalogs
+- `--update-recommender`: update default recommender model
 
-Global options like `--json`, `--no-color`, and `--no-cache` apply to subcommands.
+Global flags like `--json`, `--no-color`, and `--no-cache` apply to subcommands too.
 
 ## Sources
 
-Supported:
+Currently supported:
 - `openrouter`
 - `fal`
 - `replicate`
@@ -170,7 +222,9 @@ Optional by source:
 - `FAL_API_KEY`
 - `REPLICATE_API_TOKEN`
 
-`list` and `stats` can run without `OPENROUTER_API_KEY` when using OpenRouter's public catalog access.
+Notes:
+- `list` and `stats` can run without `OPENROUTER_API_KEY` using public OpenRouter catalog access.
+- `compare` and default recommendation flow require `OPENROUTER_API_KEY`.
 
 ## Modalities
 
@@ -186,19 +240,19 @@ Optional by source:
 
 ## Development
 
-Install deps:
+Install dependencies:
 
 ```bash
 npm install
 ```
 
-Run in dev mode:
+Run dev mode:
 
 ```bash
 npm run dev -- "generate product photos" --json
 ```
 
-Fetch catalogs directly:
+Catalog fetch script:
 
 ```bash
 npm run catalog:fetch -- --sources openrouter
