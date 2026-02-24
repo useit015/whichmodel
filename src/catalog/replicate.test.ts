@@ -407,4 +407,59 @@ describe("ReplicateCatalog", () => {
       expect(pageCalls).toHaveLength(2);
     });
   });
+
+  it("normalizes enriched image megapixel pricing into priced image entries", async () => {
+    await withTempCacheDir(async () => {
+      const fetchImpl = vi.fn<typeof fetch>().mockImplementation(async (input) => {
+        const url = String(input);
+        if (url.startsWith("https://replicate.com/")) {
+          const html = `
+            <script type="application/json">
+              {
+                "billingConfig": {
+                  "current_tiers": [
+                    {
+                      "prices": [
+                        { "metric": "image_output_megapixels", "metric_display": "output image megapixel", "title": "per output image megapixel", "price": "$0.015" }
+                      ]
+                    }
+                  ]
+                }
+              }
+            </script>
+          `;
+          return mockHtmlResponse(200, html);
+        }
+
+        return mockResponse(200, {
+          next: null,
+          results: [
+            {
+              owner: "black-forest-labs",
+              name: "flux-2-klein-9b",
+              description: "Image generation",
+              run_count: 2_000,
+              visibility: "public",
+            },
+          ],
+        });
+      });
+
+      const catalog = new ReplicateCatalog({
+        apiToken: "r8_test",
+        fetchImpl,
+        retryDelaysMs: [0],
+        sleep: async () => {},
+        noCache: true,
+        replicatePagePricing: true,
+      });
+
+      const models = await catalog.fetch();
+      expect(models).toHaveLength(1);
+      expect(models[0]?.pricing).toMatchObject({
+        type: "image",
+        perMegapixel: 0.015,
+      });
+    });
+  });
 });

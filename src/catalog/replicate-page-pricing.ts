@@ -63,12 +63,14 @@ export function parseReplicatePagePricingFromHtml(
   html: string
 ): ReplicatePagePricingResult | null {
   const parsedScripts = extractJsonScripts(html);
+  let foundBillingConfig = false;
 
   for (const script of parsedScripts) {
     const billingConfig = findBillingConfig(script);
     if (!billingConfig) {
       continue;
     }
+    foundBillingConfig = true;
 
     const pricing = normalizeBillingConfigPricing(billingConfig);
     if (pricing) {
@@ -77,6 +79,12 @@ export function parseReplicatePagePricingFromHtml(
         source: "billingConfig",
       };
     }
+  }
+
+  if (foundBillingConfig) {
+    // Avoid falling back to generic page-level `price` when structured billing
+    // exists but cannot be mapped conservatively.
+    return null;
   }
 
   for (const script of parsedScripts) {
@@ -243,6 +251,7 @@ function mapPriceTextToPricing(
   const normalizedText = text.toLowerCase();
   const hasPerMillion = normalizedText.includes("per million");
   const hasPerThousand = normalizedText.includes("per thousand");
+  const hasPerCharacter = /\bper (?:input |output )?character\b/.test(normalizedText);
 
   const isInputToken =
     metric.includes("token_input") || /\binput token/.test(normalizedText);
@@ -258,6 +267,54 @@ function mapPriceTextToPricing(
       category: "text",
       key: isInputToken ? "input_per_1m" : "output_per_1m",
       value: tokenValue,
+    };
+  }
+
+  const isInputCharacter =
+    metric.includes("character_input") || /\binput character/.test(normalizedText);
+  const isOutputCharacter =
+    metric.includes("character_output") || /\boutput character/.test(normalizedText);
+  const isCharacter =
+    isInputCharacter || isOutputCharacter || metric.includes("character");
+  if (isCharacter || hasPerCharacter) {
+    if (!hasPerMillion && !hasPerThousand && !hasPerCharacter) {
+      return null;
+    }
+
+    let perCharacter = amount;
+    if (hasPerThousand) {
+      perCharacter = amount / 1000;
+    } else if (hasPerMillion) {
+      perCharacter = amount / 1_000_000;
+    }
+
+    return {
+      category: "audio",
+      key: "per_character",
+      value: round(perCharacter),
+    };
+  }
+
+  const isInputImageMegapixel =
+    metric.includes("image_input_megapixel") ||
+    /\binput image megapixel\b/.test(normalizedText);
+  const isOutputImageMegapixel =
+    metric.includes("image_output_megapixel") ||
+    /\boutput image megapixel\b/.test(normalizedText);
+  const isImageMegapixel =
+    isInputImageMegapixel ||
+    isOutputImageMegapixel ||
+    /\bimage megapixel\b/.test(normalizedText);
+  if (isImageMegapixel) {
+    const perMegapixel = hasPerThousand ? amount / 1000 : amount;
+    return {
+      category: "image",
+      key: isOutputImageMegapixel
+        ? "output_per_megapixel"
+        : isInputImageMegapixel
+          ? "input_per_megapixel"
+          : "per_megapixel",
+      value: round(perMegapixel),
     };
   }
 

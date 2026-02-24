@@ -73,6 +73,73 @@ describe("parseReplicatePagePricingFromHtml", () => {
     });
   });
 
+  it("extracts image megapixel pricing from billingConfig", () => {
+    const html = wrapScript(
+      JSON.stringify({
+        billingConfig: {
+          current_tiers: [
+            {
+              prices: [
+                {
+                  metric: "image_input_megapixels",
+                  metric_display: "input image megapixel",
+                  title: "per thousand input image megapixels",
+                  price: "$2.00",
+                },
+                {
+                  metric: "image_output_megapixels",
+                  metric_display: "output image megapixel",
+                  title: "per output image megapixel",
+                  price: "$0.015",
+                },
+              ],
+            },
+          ],
+        },
+      })
+    );
+
+    const result = parseReplicatePagePricingFromHtml(html);
+
+    expect(result).toEqual({
+      source: "billingConfig",
+      pricing: {
+        input_per_megapixel: 0.002,
+        output_per_megapixel: 0.015,
+      },
+    });
+  });
+
+  it("extracts character-based pricing and normalizes thousand-characters to per-character", () => {
+    const html = wrapScript(
+      JSON.stringify({
+        billingConfig: {
+          current_tiers: [
+            {
+              prices: [
+                {
+                  metric: "character_input_count",
+                  metric_display: "input character",
+                  title: "per thousand input characters",
+                  price: "$0.02",
+                },
+              ],
+            },
+          ],
+        },
+      })
+    );
+
+    const result = parseReplicatePagePricingFromHtml(html);
+
+    expect(result).toEqual({
+      source: "billingConfig",
+      pricing: {
+        per_character: 0.00002,
+      },
+    });
+  });
+
   it("uses top-level price string fallback when billingConfig is unavailable", () => {
     const html = wrapScript(
       JSON.stringify({
@@ -100,6 +167,31 @@ describe("parseReplicatePagePricingFromHtml", () => {
 
     const result = parseReplicatePagePricingFromHtml(html);
 
+    expect(result).toBeNull();
+  });
+
+  it("does not fallback to top-level price string when billingConfig is present but unsupported", () => {
+    const html = wrapScript(
+      JSON.stringify({
+        price: "$0.0001 per second",
+        billingConfig: {
+          current_tiers: [
+            {
+              prices: [
+                {
+                  metric: "unspecified_billing_metric",
+                  metric_display: "unit",
+                  title: "per unit",
+                  price: "$0.08",
+                },
+              ],
+            },
+          ],
+        },
+      })
+    );
+
+    const result = parseReplicatePagePricingFromHtml(html);
     expect(result).toBeNull();
   });
 
