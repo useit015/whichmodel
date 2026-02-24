@@ -1,6 +1,7 @@
-import { Command } from "commander";
+import { Command, type OptionValues } from "commander";
 import ora from "ora";
 import { getCacheStats, invalidateCache, formatCacheStats } from "./catalog/cache.js";
+import { parseSourcesCsv, validateSupportedSourcesList } from "./catalog/sources.js";
 import { computeStats, formatStatsTerminal, formatStatsJSON } from "./commands/stats.js";
 import { filterAndSortModels, formatListTerminal, formatListJSON } from "./commands/list.js";
 import { parseWorkloadDescription, estimateCost, formatCostEstimate } from "./estimation/cost-calculator.js";
@@ -35,8 +36,10 @@ import {
   type Modality,
   type ModelEntry,
 } from "./types.js";
+import { APP_VERSION } from "./version.js";
+import { getModelPrimaryPrice } from "./model-pricing.js";
 
-const VALID_MODALITIES: Modality[] = [
+const VALID_MODALITIES: ReadonlyArray<Modality> = [
   "text",
   "image",
   "video",
@@ -47,11 +50,6 @@ const VALID_MODALITIES: Modality[] = [
   "embedding",
   "multimodal",
 ];
-
-const VALID_SOURCES = ["openrouter", "fal", "replicate", "elevenlabs", "together"] as const;
-const SUPPORTED_SOURCES = ["openrouter", "fal", "replicate"] as const;
-const VALID_SOURCE_SET = new Set<string>(VALID_SOURCES);
-const SUPPORTED_SOURCE_SET = new Set<string>(SUPPORTED_SOURCES);
 const MAX_TASK_LENGTH = 2000;
 
 interface RecommendCLIOptions {
@@ -66,7 +64,7 @@ interface RecommendCLIOptions {
   estimate?: string;
   verbose?: boolean;
   color?: boolean;
-  noCache?: boolean;
+  cache?: boolean;
   updateRecommender?: boolean;
 }
 
@@ -75,7 +73,7 @@ const program = new Command();
 program
   .name("whichmodel")
   .description("Tell me what you want to build. I'll tell you which AI model to use.")
-  .version("0.1.0")
+  .version(APP_VERSION)
   .argument("[task...]", "Task description")
   .option("--json", "Output as JSON")
   .option("-m, --modality <type>", "Force a specific modality")
@@ -92,6 +90,8 @@ program
   .option("--update-recommender", "Update the default recommender model")
   .action(async (taskWords: string[], options: RecommendCLIOptions) => {
     const runStartedAt = Date.now();
+    const noCache = shouldBypassCache(options);
+    const noColor = options.color === false || Boolean(process.env.NO_COLOR);
     try {
       // Handle --update-recommender flag first (special case)
       if (options.updateRecommender) {
@@ -100,13 +100,17 @@ program
 
         const spinner = ora("Analyzing models for best recommender...").start();
         const sources = parseSources(options.sources);
-        const models = await fetchCatalogModels(sources, config, options.noCache ?? false);
-        spinner.stop();
+        let update: Awaited<ReturnType<typeof updateRecommenderModel>>;
+        try {
+          const models = await fetchCatalogModels(sources, config, noCache);
+          update = await updateRecommenderModel(
+            models,
+            config.recommenderModel ?? DEFAULT_RECOMMENDER_MODEL
+          );
+        } finally {
+          spinner.stop();
+        }
 
-        const update = await updateRecommenderModel(
-          models,
-          config.recommenderModel ?? DEFAULT_RECOMMENDER_MODEL
-        );
         console.log(formatRecommenderUpdate(update));
         return;
       }
@@ -128,31 +132,35 @@ program
 
       const spinner = ora("Fetching model catalog...").start();
       const catalogFetchStartedAt = Date.now();
-      const allModels = await fetchCatalogModels(sources, config, options.noCache ?? false);
-      const catalogFetchLatencyMs = Date.now() - catalogFetchStartedAt;
-      let models = applyExclusions(allModels, options.exclude);
-      models = applyModelConstraints(models, constraints);
+      let catalogFetchLatencyMs = 0;
+      let allModels: ModelEntry[] = [];
+      let result: Awaited<ReturnType<typeof recommend>>;
+      try {
+        allModels = await fetchCatalogModels(sources, config, noCache);
+        catalogFetchLatencyMs = Date.now() - catalogFetchStartedAt;
+        let models = applyExclusions(allModels, options.exclude);
+        models = applyModelConstraints(models, constraints);
 
-      if (models.length === 0) {
-        throw new WhichModelError(
-          "No models found after applying filters.",
-          ExitCode.NO_MODELS_FOUND,
-          "Relax --max-price/--min-context filters or remove exclusions."
-        );
+        if (models.length === 0) {
+          throw new WhichModelError(
+            "No models found after applying filters.",
+            ExitCode.NO_MODELS_FOUND,
+            "Relax --max-price/--min-context filters or remove exclusions."
+          );
+        }
+
+        spinner.text = "Analyzing task and generating recommendations...";
+        result = await recommend({
+          task,
+          models,
+          apiKey: config.apiKey,
+          recommenderModel: options.model ?? config.recommenderModel ?? DEFAULT_RECOMMENDER_MODEL,
+          constraints,
+          catalogSources: sources,
+        });
+      } finally {
+        spinner.stop();
       }
-
-      spinner.text = "Analyzing task and generating recommendations...";
-
-      const result = await recommend({
-        task,
-        models,
-        apiKey: config.apiKey,
-        recommenderModel: options.model ?? config.recommenderModel ?? DEFAULT_RECOMMENDER_MODEL,
-        constraints,
-        catalogSources: sources,
-      });
-
-      spinner.stop();
 
       // Apply cost estimation if --estimate flag is provided
       if (options.estimate) {
@@ -185,7 +193,7 @@ program
         promptTokens: result.meta.promptTokens,
         completionTokens: result.meta.completionTokens,
         verbose: Boolean(options.verbose),
-        noColor: options.color === false || Boolean(process.env.NO_COLOR),
+        noColor,
         recommendationLatencyMs: result.meta.recommendationLatencyMs,
         catalogFetchLatencyMs,
         totalLatencyMs: Date.now() - runStartedAt,
@@ -202,73 +210,84 @@ program
   .requiredOption("--task <description>", "Task to compare for")
   .option("--json", "Output as JSON")
   .option("-v, --verbose", "Show detailed comparison")
-  .action(async (modelA: string, modelB: string, options: { task: string; json?: boolean; verbose?: boolean }) => {
+  .action(
+    async (
+      modelA: string,
+      modelB: string,
+      options: { task: string; json?: boolean; verbose?: boolean },
+      command: Command
+    ) => {
     try {
       const config = getConfig();
       requireApiKey(config);
+      const mergedOptions = command.optsWithGlobals() as OptionValues;
+      const noCache = shouldBypassCache(mergedOptions);
+      const noColor = mergedOptions.color === false || Boolean(process.env.NO_COLOR);
+      const asJson = options.json ?? Boolean(mergedOptions.json);
 
       const spinner = ora("Fetching catalog...").start();
-      const sources = parseSources(undefined); // Use default sources
-      const models = await fetchCatalogModels(sources, config);
-      spinner.stop();
+      try {
+        const sources = parseSources(undefined); // Use default sources
+        const models = await fetchCatalogModels(sources, config, noCache);
 
-      // Find the models
-      const modelAEntry = findModelById(models, modelA);
-      const modelBEntry = findModelById(models, modelB);
+        // Find the models
+        const modelAEntry = findModelById(models, modelA);
+        const modelBEntry = findModelById(models, modelB);
 
-      if (!modelAEntry) {
-        throw new WhichModelError(
-          `Model not found: ${modelA}`,
-          ExitCode.INVALID_ARGUMENTS,
-          "Use 'whichmodel list' to see available models."
+        if (!modelAEntry) {
+          throw new WhichModelError(
+            `Model not found: ${modelA}`,
+            ExitCode.INVALID_ARGUMENTS,
+            "Use 'whichmodel list' to see available models."
+          );
+        }
+
+        if (!modelBEntry) {
+          throw new WhichModelError(
+            `Model not found: ${modelB}`,
+            ExitCode.INVALID_ARGUMENTS,
+            "Use 'whichmodel list' to see available models."
+          );
+        }
+
+        // Check if comparing the same model
+        if (modelAEntry.id === modelBEntry.id) {
+          console.log(`Both model IDs resolve to the same model: ${modelAEntry.name}`);
+          console.log(`ID: ${modelAEntry.id}`);
+          return;
+        }
+
+        spinner.start("Comparing models...");
+
+        const result = await callCompareLLM(
+          options.task,
+          modelAEntry,
+          modelBEntry,
+          config.apiKey,
+          config.recommenderModel ?? DEFAULT_RECOMMENDER_MODEL
         );
-      }
 
-      if (!modelBEntry) {
-        throw new WhichModelError(
-          `Model not found: ${modelB}`,
-          ExitCode.INVALID_ARGUMENTS,
-          "Use 'whichmodel list' to see available models."
-        );
-      }
-
-      // Check if comparing the same model
-      if (modelAEntry.id === modelBEntry.id) {
-        console.log(`Both model IDs resolve to the same model: ${modelAEntry.name}`);
-        console.log(`ID: ${modelAEntry.id}`);
-        return;
-      }
-
-      spinner.start("Comparing models...");
-
-      const result = await callCompareLLM(
-        options.task,
-        modelAEntry,
-        modelBEntry,
-        config.apiKey,
-        config.recommenderModel ?? DEFAULT_RECOMMENDER_MODEL
-      );
-
-      spinner.stop();
-
-      if (options.json) {
-        console.log(JSON.stringify(formatCompareJSON(result, modelAEntry, modelBEntry), null, 2));
-      } else {
-        console.log(
-          formatCompareTerminal(result, modelAEntry, modelBEntry, {
-            modelA: modelAEntry.id,
-            modelB: modelBEntry.id,
-            task: options.task,
-            apiKey: config.apiKey,
-            recommenderModel: config.recommenderModel ?? DEFAULT_RECOMMENDER_MODEL,
-            verbose: options.verbose,
-          })
-        );
+        if (asJson) {
+          console.log(JSON.stringify(formatCompareJSON(result, modelAEntry, modelBEntry), null, 2));
+        } else {
+          console.log(
+            formatCompareTerminal(
+              result,
+              modelAEntry,
+              modelBEntry,
+              { task: options.task },
+              noColor
+            )
+          );
+        }
+      } finally {
+        spinner.stop();
       }
     } catch (error) {
       handleCLIError(error);
     }
-  });
+    }
+  );
 
 program
   .command("list")
@@ -278,10 +297,17 @@ program
   .option("--sort <field>", "Sort by field (price, name, context)", "price")
   .option("--limit <n>", "Limit results", "50")
   .option("--json", "Output as JSON")
-  .action(async (options: { modality?: string; source?: string; sort: string; limit: string; json?: boolean }) => {
+  .action(
+    async (
+      options: { modality?: string; source?: string; sort: string; limit: string; json?: boolean },
+      command: Command
+    ) => {
     try {
       const config = getConfig();
-      requireApiKey(config);
+      const mergedOptions = command.optsWithGlobals() as OptionValues;
+      const noCache = shouldBypassCache(mergedOptions);
+      const noColor = mergedOptions.color === false || Boolean(process.env.NO_COLOR);
+      const asJson = options.json ?? Boolean(mergedOptions.json);
 
       // Validate modality
       if (options.modality && !VALID_MODALITIES.includes(options.modality as Modality)) {
@@ -312,7 +338,6 @@ program
         );
       }
 
-      const spinner = ora("Fetching catalog...").start();
       const sources = options.source ? parseSources(options.source) : parseSources(undefined);
       if (options.source && sources.length !== 1) {
         throw new WhichModelError(
@@ -322,8 +347,13 @@ program
         );
       }
       validateSupportedSources(sources);
-      const models = await fetchCatalogModels(sources, config);
-      spinner.stop();
+      const spinner = ora("Fetching catalog...").start();
+      let models: ModelEntry[];
+      try {
+        models = await fetchCatalogModels(sources, config, noCache);
+      } finally {
+        spinner.stop();
+      }
       const sourceFilter = options.source ? sources[0] : undefined;
 
       const listOptions = {
@@ -335,36 +365,44 @@ program
 
       const items = filterAndSortModels(models, listOptions);
 
-      if (options.json) {
+      if (asJson) {
         console.log(JSON.stringify(formatListJSON(items), null, 2));
       } else {
-        console.log(formatListTerminal(items, models.length, listOptions));
+        console.log(formatListTerminal(items, models.length, listOptions, noColor));
       }
     } catch (error) {
       handleCLIError(error);
     }
-  });
+    }
+  );
 
 program
   .command("stats")
   .description("Show catalog statistics")
   .option("--json", "Output as JSON")
-  .action(async (options: { json?: boolean }) => {
+  .action(async (options: { json?: boolean }, command: Command) => {
     try {
       const config = getConfig();
-      requireApiKey(config);
+      const mergedOptions = command.optsWithGlobals() as OptionValues;
+      const noCache = shouldBypassCache(mergedOptions);
+      const noColor = mergedOptions.color === false || Boolean(process.env.NO_COLOR);
+      const asJson = options.json ?? Boolean(mergedOptions.json);
 
       const spinner = ora("Fetching catalog...").start();
       const sources = parseSources(undefined); // Use default sources
-      const models = await fetchCatalogModels(sources, config);
-      spinner.stop();
+      let models: ModelEntry[];
+      try {
+        models = await fetchCatalogModels(sources, config, noCache);
+      } finally {
+        spinner.stop();
+      }
 
       const stats = computeStats(models, config);
 
-      if (options.json) {
+      if (asJson) {
         console.log(JSON.stringify(formatStatsJSON(stats), null, 2));
       } else {
-        console.log(formatStatsTerminal(stats));
+        console.log(formatStatsTerminal(stats, noColor));
       }
     } catch (error) {
       handleCLIError(error);
@@ -393,8 +431,18 @@ program
   });
 
 export { program };
-export { validateTask, parseConstraints, parseSources, validateSupportedSources };
+export {
+  validateTask,
+  parseConstraints,
+  parseSources,
+  validateSupportedSources,
+  shouldBypassCache,
+};
 export { fetchCatalogModelsFromFetchers };
+
+function shouldBypassCache(options: { cache?: boolean }): boolean {
+  return options.cache === false;
+}
 
 function validateTask(task: string): void {
   if (!task) {
@@ -562,7 +610,7 @@ function applyModelConstraints(models: ModelEntry[], constraints: Constraints): 
     }
 
     if (typeof constraints.maxPrice === "number") {
-      if (getPrimaryPrice(model) > constraints.maxPrice) {
+      if (getModelPrimaryPrice(model) > constraints.maxPrice) {
         return false;
       }
     }
@@ -575,33 +623,6 @@ function applyModelConstraints(models: ModelEntry[], constraints: Constraints): 
 
     return true;
   });
-}
-
-function getPrimaryPrice(model: ModelEntry): number {
-  switch (model.pricing.type) {
-    case "text":
-      return model.pricing.promptPer1mTokens;
-    case "image":
-      return (
-        model.pricing.perImage ??
-        model.pricing.perMegapixel ??
-        model.pricing.perStep ??
-        Number.POSITIVE_INFINITY
-      );
-    case "video":
-      return model.pricing.perSecond ?? model.pricing.perGeneration ?? Number.POSITIVE_INFINITY;
-    case "audio":
-      return (
-        model.pricing.perMinute ??
-        model.pricing.perCharacter ??
-        model.pricing.perSecond ??
-        Number.POSITIVE_INFINITY
-      );
-    case "embedding":
-      return model.pricing.per1mTokens;
-    default:
-      return Number.POSITIVE_INFINITY;
-  }
 }
 
 function isResolutionAtLeast(actual: string, minimum: string): boolean {
@@ -624,39 +645,11 @@ function isResolutionAtLeast(actual: string, minimum: string): boolean {
 }
 
 function parseSources(sourcesArg?: string): string[] {
-  if (!sourcesArg) {
-    return ["openrouter"];
-  }
-
-  const sources = sourcesArg
-    .split(",")
-    .map((item) => item.trim().toLowerCase())
-    .filter(Boolean);
-
-  const invalidSources = sources.filter((source) => !VALID_SOURCE_SET.has(source));
-  if (invalidSources.length > 0) {
-    throw new WhichModelError(
-      `Invalid source value(s): ${invalidSources.join(", ")}.`,
-      ExitCode.INVALID_ARGUMENTS,
-      `Valid sources: ${VALID_SOURCES.join(", ")}`
-    );
-  }
-
-  return sources.length > 0 ? sources : ["openrouter"];
+  return parseSourcesCsv(sourcesArg);
 }
 
 function validateSupportedSources(sources: string[]): void {
-  const unsupported = sources.filter((source) => !SUPPORTED_SOURCE_SET.has(source));
-
-  if (unsupported.length === 0) {
-    return;
-  }
-
-  throw new WhichModelError(
-    `Source(s) not yet supported: ${unsupported.join(", ")}.`,
-    ExitCode.INVALID_ARGUMENTS,
-    `Use --sources ${SUPPORTED_SOURCES.join(",")}`
-  );
+  validateSupportedSourcesList(sources);
 }
 
 async function fetchCatalogModels(
@@ -699,7 +692,7 @@ async function fetchCatalogModels(
     throw new WhichModelError(
       `Unsupported source '${source}'.`,
       ExitCode.INVALID_ARGUMENTS,
-      `Use --sources ${SUPPORTED_SOURCES.join(",")}`
+      "Use --sources openrouter,fal,replicate"
     );
   }
 

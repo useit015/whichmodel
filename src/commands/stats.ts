@@ -8,7 +8,8 @@
  */
 
 import chalk, { Chalk } from "chalk";
-import type { Config, ModelEntry, Modality, Pricing } from "../types.js";
+import type { Config, ModelEntry, Modality } from "../types.js";
+import { getModelPrimaryPrice, hasUsablePrice } from "../model-pricing.js";
 
 export interface ModalityStats {
   count: number;
@@ -53,28 +54,6 @@ const MODALITY_LABELS: Record<Modality, string> = {
   embedding: "Embedding",
   multimodal: "Multimodal",
 };
-
-/**
- * Get the primary price for a model based on its modality
- */
-function getPrimaryPrice(model: ModelEntry): number {
-  const pricing = model.pricing;
-
-  switch (pricing.type) {
-    case "text":
-      return pricing.promptPer1mTokens;
-    case "image":
-      return pricing.perImage ?? pricing.perMegapixel ?? pricing.perStep ?? Number.POSITIVE_INFINITY;
-    case "video":
-      return pricing.perSecond ?? pricing.perGeneration ?? Number.POSITIVE_INFINITY;
-    case "audio":
-      return pricing.perMinute ?? pricing.perCharacter ?? pricing.perSecond ?? Number.POSITIVE_INFINITY;
-    case "embedding":
-      return pricing.per1mTokens;
-    default:
-      return Number.POSITIVE_INFINITY;
-  }
-}
 
 /**
  * Format a price for display
@@ -122,8 +101,14 @@ function getPriceUnit(modality: Modality): string {
 export function computeStats(models: ModelEntry[], config: Config): CatalogStats {
   const byModality: Record<string, ModalityStats> = {};
   const sources = new Set<string>();
+  let totalModels = 0;
 
   for (const model of models) {
+    if (!hasUsablePrice(model)) {
+      continue;
+    }
+    totalModels += 1;
+
     sources.add(model.source);
 
     const modality = model.modality;
@@ -136,7 +121,7 @@ export function computeStats(models: ModelEntry[], config: Config): CatalogStats
 
     byModality[modality].count++;
 
-    const price = getPrimaryPrice(model);
+    const price = getModelPrimaryPrice(model);
     if (Number.isFinite(price)) {
       byModality[modality].priceRange.min = Math.min(byModality[modality].priceRange.min, price);
       byModality[modality].priceRange.max = Math.max(byModality[modality].priceRange.max, price);
@@ -147,15 +132,7 @@ export function computeStats(models: ModelEntry[], config: Config): CatalogStats
   const configuredSources: string[] = [];
   const missingSources: CatalogStats["missingSources"] = [];
 
-  if (config.apiKey) {
-    configuredSources.push("openrouter");
-  } else {
-    missingSources.push({
-      name: "openrouter",
-      envVar: "OPENROUTER_API_KEY",
-      getUrl: "https://openrouter.ai/keys",
-    });
-  }
+  configuredSources.push("openrouter");
 
   if (config.falApiKey) {
     configuredSources.push("fal");
@@ -198,7 +175,7 @@ export function computeStats(models: ModelEntry[], config: Config): CatalogStats
   }
 
   return {
-    totalModels: models.length,
+    totalModels,
     sources: Array.from(sources).sort(),
     byModality,
     configuredSources,

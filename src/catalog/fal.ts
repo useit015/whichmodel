@@ -118,7 +118,9 @@ export class FalCatalog implements CatalogSource {
       .map(model => normalizeFalModel(model))
       .filter((model): model is ModelEntry => model !== null);
 
-    await writeCache(this.sourceId, models, this.cacheTtl);
+    if (models.length > 0) {
+      await writeCache(this.sourceId, models, this.cacheTtl);
+    }
 
     return models;
   }

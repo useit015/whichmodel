@@ -5,6 +5,7 @@ import type {
   ModelPick,
   Recommendation,
 } from "../types.js";
+import { getModelPrimaryPrice, hasUsablePrice } from "../model-pricing.js";
 
 const TIER_KEYS = ["cheapest", "balanced", "best"] as const;
 
@@ -85,6 +86,10 @@ function filterFallbackCandidates(
   constraints?: Constraints
 ): ModelEntry[] {
   return models.filter((model) => {
+    if (!hasUsablePrice(model)) {
+      return false;
+    }
+
     if (model.modality !== modality && !(modality === "text" && model.modality === "vision")) {
       return false;
     }
@@ -118,28 +123,7 @@ function pickBestCandidate(models: ModelEntry[]): ModelEntry | undefined {
 }
 
 function getPriceScore(model: ModelEntry): number {
-  const pricing = model.pricing;
-
-  switch (pricing.type) {
-    case "text":
-      return positiveOrInfinity(
-        pricing.promptPer1mTokens + pricing.completionPer1mTokens
-      );
-    case "embedding":
-      return positiveOrInfinity(pricing.per1mTokens);
-    case "image":
-      return positiveOrInfinity(
-        pricing.perImage ?? pricing.perMegapixel ?? pricing.perStep
-      );
-    case "video":
-      return positiveOrInfinity(pricing.perSecond ?? pricing.perGeneration);
-    case "audio":
-      return positiveOrInfinity(
-        pricing.perMinute ?? pricing.perCharacter ?? pricing.perSecond
-      );
-    default:
-      return Number.POSITIVE_INFINITY;
-  }
+  return getModelPrimaryPrice(model);
 }
 
 function toPick(model: ModelEntry, reason: string): ModelPick {
@@ -275,12 +259,4 @@ function uniquePicks(candidates: ModelEntry[]): ModelEntry[] {
 
 function isModelEntry(value: ModelEntry | undefined): value is ModelEntry {
   return Boolean(value);
-}
-
-function positiveOrInfinity(value: number | undefined): number {
-  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
-    return Number.POSITIVE_INFINITY;
-  }
-
-  return value;
 }

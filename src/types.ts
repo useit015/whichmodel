@@ -317,7 +317,7 @@ export interface JSONOutput {
  * Application configuration
  */
 export interface Config {
-  /** OpenRouter API key (required for catalog and LLM) */
+  /** OpenRouter API key (required for recommendation/comparison LLM calls) */
   apiKey: string;
 
   /** Model to use for recommendations */

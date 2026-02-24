@@ -11,8 +11,7 @@ import { generateFallbackRecommendation } from "./fallback.js";
 import { requestRecommendationCompletion } from "./llm-client.js";
 import { buildSystemPrompt, buildUserPrompt } from "./prompts.js";
 import { findClosestModelId, validateRecommendation } from "./validator.js";
-
-const TOOL_VERSION = "0.1.0";
+import { APP_VERSION } from "../version.js";
 
 const RECOMMENDER_MODEL_PRICING_PER_1M: Record<
   string,
@@ -120,7 +119,7 @@ export async function recommend(options: RecommendOptions): Promise<RecommendRes
       catalogTotalModels: models.length,
       catalogModelsInModality,
       timestamp: new Date().toISOString(),
-      version: TOOL_VERSION,
+      version: APP_VERSION,
     },
   };
 }

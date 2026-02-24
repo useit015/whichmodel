@@ -1,4 +1,5 @@
 import type { ModelEntry } from "../types.js";
+import { getModelPrimaryPrice } from "../model-pricing.js";
 
 export function mergeCatalogModels(modelsBySource: ModelEntry[][]): ModelEntry[] {
   const merged = new Map<string, ModelEntry>();
@@ -48,28 +49,5 @@ function completenessScore(model: ModelEntry): number {
 }
 
 function primaryPrice(model: ModelEntry): number {
-  switch (model.pricing.type) {
-    case "text":
-      return model.pricing.promptPer1mTokens + model.pricing.completionPer1mTokens;
-    case "image":
-      return (
-        model.pricing.perImage ??
-        model.pricing.perMegapixel ??
-        model.pricing.perStep ??
-        Number.POSITIVE_INFINITY
-      );
-    case "video":
-      return model.pricing.perSecond ?? model.pricing.perGeneration ?? Number.POSITIVE_INFINITY;
-    case "audio":
-      return (
-        model.pricing.perMinute ??
-        model.pricing.perCharacter ??
-        model.pricing.perSecond ??
-        Number.POSITIVE_INFINITY
-      );
-    case "embedding":
-      return model.pricing.per1mTokens;
-    default:
-      return Number.POSITIVE_INFINITY;
-  }
+  return getModelPrimaryPrice(model);
 }

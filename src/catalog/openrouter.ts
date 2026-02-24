@@ -91,6 +91,17 @@ export class OpenRouterCatalog implements CatalogSource {
           .map(model => normalizeOpenRouterModel(model))
           .filter((model): model is ModelEntry => model !== null);
 
+        if (models.length === 0) {
+          throw new WhichModelError(
+            "OpenRouter catalog returned no usable models.",
+            ExitCode.NETWORK_ERROR,
+            [
+              "This can happen if the upstream catalog schema changed.",
+              "Retry in a few minutes. If it persists, update whichmodel.",
+            ].join("\n")
+          );
+        }
+
         await writeCache(this.sourceId, models, this.cacheTtl);
 
         return models;

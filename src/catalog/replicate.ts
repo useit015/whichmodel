@@ -78,7 +78,9 @@ export class ReplicateCatalog implements CatalogSource {
       .map(model => normalizeReplicateModel(model))
       .filter((model): model is ModelEntry => model !== null);
 
-    await writeCache(this.sourceId, models, this.cacheTtl);
+    if (models.length > 0) {
+      await writeCache(this.sourceId, models, this.cacheTtl);
+    }
 
     return models;
   }

@@ -12,12 +12,7 @@ import { compressForLLM } from "../catalog/compressor.js";
 import { requestRecommendationCompletion } from "../recommender/llm-client.js";
 
 export interface CompareOptions {
-  modelA: string;
-  modelB: string;
   task: string;
-  apiKey: string;
-  recommenderModel: string;
-  verbose?: boolean;
 }
 
 export interface CompareResult {

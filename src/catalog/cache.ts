@@ -99,6 +99,10 @@ export async function readCache(source: string): Promise<ModelEntry[] | null> {
       return null;
     }
 
+    if (Array.isArray(cache.data) && cache.data.length === 0) {
+      return null;
+    }
+
     return cache.data;
   } catch {
     // Cache doesn't exist, is malformed, or can't be read

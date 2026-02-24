@@ -7,7 +7,8 @@
  */
 
 import chalk, { Chalk } from "chalk";
-import type { Modality, ModelEntry, Pricing } from "../types.js";
+import type { Modality, ModelEntry } from "../types.js";
+import { getModelPrimaryPrice, hasUsablePrice } from "../model-pricing.js";
 
 export interface ListOptions {
   modality?: Modality;
@@ -28,25 +29,6 @@ export interface ModelListItem {
 /**
  * Get the primary price for a model based on its modality
  */
-function getPrimaryPrice(model: ModelEntry): number {
-  const pricing = model.pricing;
-
-  switch (pricing.type) {
-    case "text":
-      return pricing.promptPer1mTokens;
-    case "image":
-      return pricing.perImage ?? pricing.perMegapixel ?? pricing.perStep ?? Number.POSITIVE_INFINITY;
-    case "video":
-      return pricing.perSecond ?? pricing.perGeneration ?? Number.POSITIVE_INFINITY;
-    case "audio":
-      return pricing.perMinute ?? pricing.perCharacter ?? pricing.perSecond ?? Number.POSITIVE_INFINITY;
-    case "embedding":
-      return pricing.per1mTokens;
-    default:
-      return Number.POSITIVE_INFINITY;
-  }
-}
-
 /**
  * Format pricing for display
  */
@@ -108,7 +90,7 @@ function formatContext(context?: number): string {
  * Filter and sort models based on options
  */
 export function filterAndSortModels(models: ModelEntry[], options: ListOptions): ModelListItem[] {
-  let filtered = [...models];
+  let filtered = models.filter((model) => hasUsablePrice(model));
 
   // Filter by modality
   if (options.modality) {
@@ -124,8 +106,8 @@ export function filterAndSortModels(models: ModelEntry[], options: ListOptions):
   filtered.sort((a, b) => {
     switch (options.sort) {
       case "price": {
-        const priceA = getPrimaryPrice(a);
-        const priceB = getPrimaryPrice(b);
+        const priceA = getModelPrimaryPrice(a);
+        const priceB = getModelPrimaryPrice(b);
         return priceA - priceB;
       }
       case "name":

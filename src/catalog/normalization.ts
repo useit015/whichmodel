@@ -104,6 +104,10 @@ export function normalizeOpenRouterModel(raw: OpenRouterModel): ModelEntry | nul
   const promptPerToken = parsePrice(raw.pricing?.prompt);
   const completionPerToken = parsePrice(raw.pricing?.completion);
 
+  if (promptPerToken < 0 || completionPerToken < 0) {
+    return null;
+  }
+
   if (promptPerToken === 0 && completionPerToken === 0) {
     return null;
   }
