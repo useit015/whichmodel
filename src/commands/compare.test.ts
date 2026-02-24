@@ -70,11 +70,7 @@ function createCompareResult(overrides: Partial<CompareResult> = {}): CompareRes
 
 function createCompareOptions(overrides: Partial<CompareOptions> = {}): CompareOptions {
   return {
-    modelA: "openrouter::test/model-a",
-    modelB: "openrouter::test/model-b",
     task: "Summarize documents",
-    apiKey: "test-api-key",
-    recommenderModel: "test/recommender",
     ...overrides,
   };
 }

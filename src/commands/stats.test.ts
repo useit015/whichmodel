@@ -129,6 +129,43 @@ describe("computeStats", () => {
     expect(missingFal).toBeDefined();
     expect(missingFal?.envVar).toBe("FAL_API_KEY");
   });
+
+  it("always treats openrouter as configured (public catalog)", () => {
+    const config = {
+      apiKey: "",
+      recommenderModel: "test/model",
+      cacheTtl: 3600,
+    };
+
+    const stats = computeStats([], config);
+    expect(stats.configuredSources).toContain("openrouter");
+    expect(stats.missingSources.some((s) => s.name === "openrouter")).toBe(false);
+  });
+
+  it("skips unusable pricing entries in totals and ranges", () => {
+    const config = {
+      apiKey: "sk-or-test",
+      recommenderModel: "test/model",
+      cacheTtl: 3600,
+    };
+
+    const models: ModelEntry[] = [
+      createTextModel({
+        id: "openrouter::bad",
+        pricing: { type: "text", promptPer1mTokens: -1, completionPer1mTokens: -1 },
+      }),
+      createTextModel({
+        id: "openrouter::good",
+        pricing: { type: "text", promptPer1mTokens: 1.25, completionPer1mTokens: 2.5 },
+      }),
+    ];
+
+    const stats = computeStats(models, config);
+
+    expect(stats.totalModels).toBe(1);
+    expect(stats.byModality.text?.count).toBe(1);
+    expect(stats.byModality.text?.priceRange.min).toBe(1.25);
+  });
 });
 
 describe("formatStatsTerminal", () => {

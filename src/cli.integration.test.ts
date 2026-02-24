@@ -1,4 +1,6 @@
 import { spawnSync } from "node:child_process";
+import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -33,6 +35,50 @@ function runCLI(args: string[], envOverrides: Record<string, string | undefined>
     status: result.status,
     stdout: result.stdout,
     stderr: result.stderr,
+  };
+}
+
+function createTempOpenRouterCache(): { xdgCacheHome: string; cleanup: () => void } {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "whichmodel-cli-cache-"));
+  const cacheDir = path.join(tempRoot, "whichmodel");
+  fs.mkdirSync(cacheDir, { recursive: true });
+
+  const now = Math.floor(Date.now() / 1000);
+  const cachePayload = {
+    data: [
+      {
+        id: "openrouter::openai/gpt-4o-mini",
+        source: "openrouter",
+        name: "GPT-4o Mini",
+        modality: "text",
+        inputModalities: ["text"],
+        outputModalities: ["text"],
+        pricing: {
+          type: "text",
+          promptPer1mTokens: 0.15,
+          completionPer1mTokens: 0.6,
+        },
+        contextLength: 128000,
+        provider: "openai",
+        family: "gpt",
+      },
+    ],
+    timestamp: now,
+    ttl: 3600,
+    source: "openrouter",
+  };
+
+  fs.writeFileSync(
+    path.join(cacheDir, "openrouter-catalog.json"),
+    JSON.stringify(cachePayload, null, 2),
+    "utf8"
+  );
+
+  return {
+    xdgCacheHome: tempRoot,
+    cleanup: () => {
+      fs.rmSync(tempRoot, { recursive: true, force: true });
+    },
   };
 }
 
@@ -140,6 +186,41 @@ describe("CLI integration error handling", () => {
     expect(result.stdout).not.toContain(openrouterKey);
     expect(result.stderr).not.toContain(openrouterKey);
     expect(result.stderr).toContain("Error: FAL_API_KEY is not set.");
+  });
+
+  it("supports list --json via global flag and without OPENROUTER_API_KEY", () => {
+    const cache = createTempOpenRouterCache();
+    try {
+      const result = runCLI(["--json", "list", "--limit", "1"], {
+        OPENROUTER_API_KEY: undefined,
+        WHICHMODEL_CONFIG: "/tmp/whichmodel-config-does-not-exist.json",
+        XDG_CACHE_HOME: cache.xdgCacheHome,
+      });
+
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain('"models"');
+      expect(result.stdout).not.toContain("┌");
+    } finally {
+      cache.cleanup();
+    }
+  });
+
+  it("supports stats --json via global flag and without OPENROUTER_API_KEY", () => {
+    const cache = createTempOpenRouterCache();
+    try {
+      const result = runCLI(["--json", "stats"], {
+        OPENROUTER_API_KEY: undefined,
+        WHICHMODEL_CONFIG: "/tmp/whichmodel-config-does-not-exist.json",
+        XDG_CACHE_HOME: cache.xdgCacheHome,
+      });
+
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain('"totalModels"');
+      expect(result.stdout).toContain('"sources"');
+      expect(result.stdout).not.toContain("┌");
+    } finally {
+      cache.cleanup();
+    }
   });
 
 });

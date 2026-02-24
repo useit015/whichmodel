@@ -175,6 +175,25 @@ describe("readCache", () => {
       expect(result).toBeNull();
     });
   });
+
+  it("returns null for empty cached model arrays", async () => {
+    await withTempCacheDir(async (tempDir) => {
+      const cachePath = path.join(tempDir, "whichmodel", "test-catalog.json");
+      await fs.mkdir(path.dirname(cachePath), { recursive: true });
+      await fs.writeFile(
+        cachePath,
+        JSON.stringify({
+          data: [],
+          timestamp: Math.floor(Date.now() / 1000),
+          ttl: 3600,
+          source: "test",
+        })
+      );
+
+      const result = await readCache("test");
+      expect(result).toBeNull();
+    });
+  });
 });
 
 describe("writeCache", () => {

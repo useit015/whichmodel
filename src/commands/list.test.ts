@@ -141,6 +141,27 @@ describe("filterAndSortModels", () => {
     expect(result).toHaveLength(2);
   });
 
+  it("excludes models with unusable pricing from ranked output", () => {
+    const models: ModelEntry[] = [
+      createTextModel({
+        id: "openrouter::bad-pricing",
+        pricing: { type: "text", promptPer1mTokens: -1, completionPer1mTokens: -1 },
+      }),
+      createTextModel({
+        id: "openrouter::valid",
+        pricing: { type: "text", promptPer1mTokens: 0.2, completionPer1mTokens: 0.3 },
+      }),
+    ];
+
+    const result = filterAndSortModels(models, {
+      sort: "price",
+      limit: 50,
+    });
+
+    expect(result).toHaveLength(1);
+    expect(result[0]?.id).toBe("openrouter::valid");
+  });
+
   it("combines filters", () => {
     const models: ModelEntry[] = [
       createTextModel({ id: "openrouter::text1" }),

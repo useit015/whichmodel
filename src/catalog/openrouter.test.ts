@@ -17,6 +17,17 @@ function abortError(message: string): Error {
   return error;
 }
 
+const MIN_MODEL_PAYLOAD: OpenRouterResponse = {
+  data: [
+    {
+      id: "openai/gpt-4o-mini",
+      name: "GPT-4o Mini",
+      context_length: 128000,
+      pricing: { prompt: "0.00000015", completion: "0.0000006" },
+    },
+  ],
+};
+
 describe("OpenRouterCatalog", () => {
   it("normalizes fixture data into model entries", async () => {
     const fetchImpl = vi
@@ -157,7 +168,7 @@ describe("OpenRouterCatalog", () => {
     const fetchImpl = vi
       .fn<typeof fetch>()
       .mockResolvedValueOnce(mockResponse(429, { error: "rate limited" }))
-      .mockResolvedValueOnce(mockResponse(200, { data: [] }));
+      .mockResolvedValueOnce(mockResponse(200, MIN_MODEL_PAYLOAD));
 
     const catalog = new OpenRouterCatalog({
       fetchImpl,
@@ -174,7 +185,7 @@ describe("OpenRouterCatalog", () => {
     const fetchImpl = vi
       .fn<typeof fetch>()
       .mockResolvedValueOnce(mockResponse(408, { error: "timeout" }))
-      .mockResolvedValueOnce(mockResponse(200, { data: [] }));
+      .mockResolvedValueOnce(mockResponse(200, MIN_MODEL_PAYLOAD));
 
     const catalog = new OpenRouterCatalog({
       fetchImpl,
@@ -206,7 +217,7 @@ describe("OpenRouterCatalog", () => {
     const fetchImpl = vi
       .fn<typeof fetch>()
       .mockRejectedValueOnce(new TypeError("network error"))
-      .mockResolvedValueOnce(mockResponse(200, { data: [] }));
+      .mockResolvedValueOnce(mockResponse(200, MIN_MODEL_PAYLOAD));
 
     const catalog = new OpenRouterCatalog({
       fetchImpl,
@@ -247,5 +258,62 @@ describe("OpenRouterCatalog", () => {
       exitCode: ExitCode.NETWORK_ERROR,
       message: "OpenRouter catalog response is invalid.",
     });
+  });
+
+  it("throws when no usable models are returned", async () => {
+    const payload: OpenRouterResponse = {
+      data: [
+        {
+          id: "openrouter/auto",
+          name: "Auto Router",
+          context_length: 128000,
+          pricing: { prompt: "-1", completion: "-1" },
+        },
+      ],
+    };
+
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(mockResponse(200, payload));
+    const catalog = new OpenRouterCatalog({
+      fetchImpl,
+      retryDelaysMs: [0],
+      sleep: async () => {},
+      noCache: true,
+    });
+
+    await expect(catalog.fetch()).rejects.toMatchObject({
+      exitCode: ExitCode.NETWORK_ERROR,
+      message: "OpenRouter catalog returned no usable models.",
+    });
+  });
+
+  it("filters out models using negative sentinel pricing", async () => {
+    const payload: OpenRouterResponse = {
+      data: [
+        {
+          id: "openrouter/auto",
+          name: "Auto Router",
+          context_length: 128000,
+          pricing: { prompt: "-1", completion: "-1" },
+        },
+        {
+          id: "openai/gpt-4o-mini",
+          name: "GPT-4o Mini",
+          context_length: 128000,
+          pricing: { prompt: "0.00000015", completion: "0.0000006" },
+        },
+      ],
+    };
+
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(mockResponse(200, payload));
+    const catalog = new OpenRouterCatalog({
+      fetchImpl,
+      retryDelaysMs: [0],
+      sleep: async () => {},
+      noCache: true,
+    });
+
+    const models = await catalog.fetch();
+    expect(models).toHaveLength(1);
+    expect(models[0]?.id).toBe("openrouter::openai/gpt-4o-mini");
   });
 });

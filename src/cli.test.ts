@@ -3,6 +3,7 @@ import {
   fetchCatalogModelsFromFetchers,
   parseConstraints,
   parseSources,
+  shouldBypassCache,
   validateSupportedSources,
   validateTask,
 } from "./cli.js";
@@ -78,6 +79,17 @@ describe("parseConstraints", () => {
         exitCode: ExitCode.INVALID_ARGUMENTS,
       })
     );
+  });
+});
+
+describe("shouldBypassCache", () => {
+  it("returns true when Commander negated option sets cache=false", () => {
+    expect(shouldBypassCache({ cache: false })).toBe(true);
+  });
+
+  it("returns false when cache option is true or undefined", () => {
+    expect(shouldBypassCache({ cache: true })).toBe(false);
+    expect(shouldBypassCache({})).toBe(false);
   });
 });
 
