@@ -57,18 +57,13 @@ whichmodel "summarize legal contracts and flag risks" --verbose
 
 ## Example Recommendation Output
 
-Command used:
-
 ```bash
-npm run dev -- "summarize legal contracts and flag risks" --no-color --no-cache
+whichmodel "summarize legal contracts and flag risks" --no-color --no-cache
 ```
 
 Sample output:
 
 ```text
-> whichmodel@1.0.0 dev
-> tsx src/index.ts summarize legal contracts and flag risks --no-color --no-cache
-
 - Fetching model catalog...
 🔍 Task Analysis
    Modality: TEXT
