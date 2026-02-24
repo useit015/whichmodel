@@ -1,5 +1,19 @@
 import { Command } from "commander";
 import ora from "ora";
+import { getCacheStats, invalidateCache, formatCacheStats } from "./catalog/cache.js";
+import { computeStats, formatStatsTerminal, formatStatsJSON } from "./commands/stats.js";
+import { filterAndSortModels, formatListTerminal, formatListJSON } from "./commands/list.js";
+import { parseWorkloadDescription, estimateCost, formatCostEstimate } from "./estimation/cost-calculator.js";
+import {
+  findModelById,
+  callCompareLLM,
+  formatCompareTerminal,
+  formatCompareJSON,
+} from "./commands/compare.js";
+import {
+  updateRecommenderModel,
+  formatRecommenderUpdate,
+} from "./commands/update-recommender.js";
 import { FalCatalog } from "./catalog/fal.js";
 import { mergeCatalogModels } from "./catalog/merge.js";
 import { OpenRouterCatalog } from "./catalog/openrouter.js";
@@ -52,6 +66,8 @@ interface RecommendCLIOptions {
   estimate?: string;
   verbose?: boolean;
   color?: boolean;
+  noCache?: boolean;
+  updateRecommender?: boolean;
 }
 
 const program = new Command();
@@ -72,9 +88,30 @@ program
   .option("--estimate <workload>", "Workload description for cost estimation")
   .option("-v, --verbose", "Show extra recommendation metadata")
   .option("--no-color", "Disable colored output")
+  .option("--no-cache", "Bypass cache and fetch fresh catalog")
+  .option("--update-recommender", "Update the default recommender model")
   .action(async (taskWords: string[], options: RecommendCLIOptions) => {
     const runStartedAt = Date.now();
     try {
+      // Handle --update-recommender flag first (special case)
+      if (options.updateRecommender) {
+        const config = getConfig();
+        requireApiKey(config);
+
+        const spinner = ora("Analyzing models for best recommender...").start();
+        const sources = parseSources(options.sources);
+        const models = await fetchCatalogModels(sources, config, options.noCache ?? false);
+        spinner.stop();
+
+        const update = await updateRecommenderModel(
+          models,
+          config.recommenderModel ?? DEFAULT_RECOMMENDER_MODEL
+        );
+        console.log(formatRecommenderUpdate(update));
+        return;
+      }
+
+      // Normal recommendation flow - validate task first
       const task = taskWords.join(" ").trim();
       validateTask(task);
       const constraints = parseConstraints(options);
@@ -91,7 +128,7 @@ program
 
       const spinner = ora("Fetching model catalog...").start();
       const catalogFetchStartedAt = Date.now();
-      const allModels = await fetchCatalogModels(sources, config);
+      const allModels = await fetchCatalogModels(sources, config, options.noCache ?? false);
       const catalogFetchLatencyMs = Date.now() - catalogFetchStartedAt;
       let models = applyExclusions(allModels, options.exclude);
       models = applyModelConstraints(models, constraints);
@@ -116,6 +153,24 @@ program
       });
 
       spinner.stop();
+
+      // Apply cost estimation if --estimate flag is provided
+      if (options.estimate) {
+        try {
+          const workload = parseWorkloadDescription(options.estimate);
+          const tiers = ["cheapest", "balanced", "best"] as const;
+          for (const tier of tiers) {
+            const modelId = result.recommendation.recommendations[tier].id;
+            const model = allModels.find((m) => m.id === modelId);
+            if (model) {
+              const costEst = estimateCost(model, workload);
+              result.recommendation.recommendations[tier].estimatedCost = formatCostEstimate(costEst);
+            }
+          }
+        } catch {
+          // If parsing fails, keep the LLM-generated estimate
+        }
+      }
 
       if (options.json) {
         console.log(
@@ -143,27 +198,189 @@ program
 
 program
   .command("compare <modelA> <modelB>")
-  .description("Compare two models head-to-head for a task (Phase 3)")
+  .description("Compare two models head-to-head for a task")
   .requiredOption("--task <description>", "Task to compare for")
-  .action(() => {
-    console.error("compare is planned for Phase 3");
-    process.exit(ExitCode.INVALID_ARGUMENTS);
+  .option("--json", "Output as JSON")
+  .option("-v, --verbose", "Show detailed comparison")
+  .action(async (modelA: string, modelB: string, options: { task: string; json?: boolean; verbose?: boolean }) => {
+    try {
+      const config = getConfig();
+      requireApiKey(config);
+
+      const spinner = ora("Fetching catalog...").start();
+      const sources = parseSources(undefined); // Use default sources
+      const models = await fetchCatalogModels(sources, config);
+      spinner.stop();
+
+      // Find the models
+      const modelAEntry = findModelById(models, modelA);
+      const modelBEntry = findModelById(models, modelB);
+
+      if (!modelAEntry) {
+        throw new WhichModelError(
+          `Model not found: ${modelA}`,
+          ExitCode.INVALID_ARGUMENTS,
+          "Use 'whichmodel list' to see available models."
+        );
+      }
+
+      if (!modelBEntry) {
+        throw new WhichModelError(
+          `Model not found: ${modelB}`,
+          ExitCode.INVALID_ARGUMENTS,
+          "Use 'whichmodel list' to see available models."
+        );
+      }
+
+      // Check if comparing the same model
+      if (modelAEntry.id === modelBEntry.id) {
+        console.log(`Both model IDs resolve to the same model: ${modelAEntry.name}`);
+        console.log(`ID: ${modelAEntry.id}`);
+        return;
+      }
+
+      spinner.start("Comparing models...");
+
+      const result = await callCompareLLM(
+        options.task,
+        modelAEntry,
+        modelBEntry,
+        config.apiKey,
+        config.recommenderModel ?? DEFAULT_RECOMMENDER_MODEL
+      );
+
+      spinner.stop();
+
+      if (options.json) {
+        console.log(JSON.stringify(formatCompareJSON(result, modelAEntry, modelBEntry), null, 2));
+      } else {
+        console.log(
+          formatCompareTerminal(result, modelAEntry, modelBEntry, {
+            modelA: modelAEntry.id,
+            modelB: modelBEntry.id,
+            task: options.task,
+            apiKey: config.apiKey,
+            recommenderModel: config.recommenderModel ?? DEFAULT_RECOMMENDER_MODEL,
+            verbose: options.verbose,
+          })
+        );
+      }
+    } catch (error) {
+      handleCLIError(error);
+    }
   });
 
 program
   .command("list")
-  .description("List models (Phase 3)")
-  .action(() => {
-    console.error("list is planned for Phase 3");
-    process.exit(ExitCode.INVALID_ARGUMENTS);
+  .description("List available models")
+  .option("--modality <type>", "Filter by modality")
+  .option("--source <name>", "Filter by source")
+  .option("--sort <field>", "Sort by field (price, name, context)", "price")
+  .option("--limit <n>", "Limit results", "50")
+  .option("--json", "Output as JSON")
+  .action(async (options: { modality?: string; source?: string; sort: string; limit: string; json?: boolean }) => {
+    try {
+      const config = getConfig();
+      requireApiKey(config);
+
+      // Validate modality
+      if (options.modality && !VALID_MODALITIES.includes(options.modality as Modality)) {
+        throw new WhichModelError(
+          `Invalid modality '${options.modality}'.`,
+          ExitCode.INVALID_ARGUMENTS,
+          `Valid modalities: ${VALID_MODALITIES.join(", ")}`
+        );
+      }
+
+      // Validate sort
+      const validSorts = ["price", "name", "context"] as const;
+      if (!validSorts.includes(options.sort as typeof validSorts[number])) {
+        throw new WhichModelError(
+          `Invalid sort field '${options.sort}'.`,
+          ExitCode.INVALID_ARGUMENTS,
+          `Valid sorts: ${validSorts.join(", ")}`
+        );
+      }
+
+      // Parse limit
+      const limit = Number.parseInt(options.limit, 10);
+      if (!Number.isFinite(limit) || limit <= 0) {
+        throw new WhichModelError(
+          `Invalid limit '${options.limit}'.`,
+          ExitCode.INVALID_ARGUMENTS,
+          "Limit must be a positive integer."
+        );
+      }
+
+      const spinner = ora("Fetching catalog...").start();
+      const sources = options.source ? [options.source] : parseSources(undefined);
+      const models = await fetchCatalogModels(sources, config);
+      spinner.stop();
+
+      const listOptions = {
+        modality: options.modality as Modality | undefined,
+        source: options.source,
+        sort: options.sort as "price" | "name" | "context",
+        limit,
+      };
+
+      const items = filterAndSortModels(models, listOptions);
+
+      if (options.json) {
+        console.log(JSON.stringify(formatListJSON(items), null, 2));
+      } else {
+        console.log(formatListTerminal(items, models.length, listOptions));
+      }
+    } catch (error) {
+      handleCLIError(error);
+    }
   });
 
 program
   .command("stats")
-  .description("Catalog stats (Phase 3)")
-  .action(() => {
-    console.error("stats is planned for Phase 3");
-    process.exit(ExitCode.INVALID_ARGUMENTS);
+  .description("Show catalog statistics")
+  .option("--json", "Output as JSON")
+  .action(async (options: { json?: boolean }) => {
+    try {
+      const config = getConfig();
+      requireApiKey(config);
+
+      const spinner = ora("Fetching catalog...").start();
+      const sources = parseSources(undefined); // Use default sources
+      const models = await fetchCatalogModels(sources, config);
+      spinner.stop();
+
+      const stats = computeStats(models, config);
+
+      if (options.json) {
+        console.log(JSON.stringify(formatStatsJSON(stats), null, 2));
+      } else {
+        console.log(formatStatsTerminal(stats));
+      }
+    } catch (error) {
+      handleCLIError(error);
+    }
+  });
+
+program
+  .command("cache")
+  .description("Manage catalog cache")
+  .option("--stats", "Show cache statistics")
+  .option("--clear", "Clear all cached catalog data")
+  .action(async (options: { stats?: boolean; clear?: boolean }) => {
+    try {
+      if (options.clear) {
+        await invalidateCache();
+        console.log("Cache cleared.");
+        return;
+      }
+
+      // Default to showing stats
+      const stats = await getCacheStats();
+      console.log(formatCacheStats(stats));
+    } catch (error) {
+      handleCLIError(error);
+    }
   });
 
 export { program };
@@ -416,13 +633,17 @@ function validateSupportedSources(sources: string[]): void {
   );
 }
 
-async function fetchCatalogModels(sources: string[], config: Config): Promise<ModelEntry[]> {
+async function fetchCatalogModels(
+  sources: string[],
+  config: Config,
+  noCache: boolean = false
+): Promise<ModelEntry[]> {
   const sourceFetchers: SourceFetcher[] = [];
   for (const source of sources) {
     if (source === "openrouter") {
       sourceFetchers.push({
         source,
-        fetch: async () => new OpenRouterCatalog().fetch(),
+        fetch: async () => new OpenRouterCatalog({ noCache, cacheTtl: config.cacheTtl }).fetch(),
       });
       continue;
     }
@@ -430,7 +651,8 @@ async function fetchCatalogModels(sources: string[], config: Config): Promise<Mo
     if (source === "fal") {
       sourceFetchers.push({
         source,
-        fetch: async () => new FalCatalog({ apiKey: config.falApiKey }).fetch(),
+        fetch: async () =>
+          new FalCatalog({ apiKey: config.falApiKey, noCache, cacheTtl: config.cacheTtl }).fetch(),
       });
       continue;
     }
@@ -438,7 +660,12 @@ async function fetchCatalogModels(sources: string[], config: Config): Promise<Mo
     if (source === "replicate") {
       sourceFetchers.push({
         source,
-        fetch: async () => new ReplicateCatalog({ apiToken: config.replicateApiToken }).fetch(),
+        fetch: async () =>
+          new ReplicateCatalog({
+            apiToken: config.replicateApiToken,
+            noCache,
+            cacheTtl: config.cacheTtl,
+          }).fetch(),
       });
       continue;
     }

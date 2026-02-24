@@ -488,6 +488,40 @@ export interface CacheEntry<T> {
   source: string;
 }
 
+/**
+ * Cache statistics for a single source
+ */
+export interface CacheSourceStats {
+  /** Source name (e.g., "openrouter", "fal") */
+  name: string;
+
+  /** Timestamp when cached (Unix epoch in seconds) */
+  timestamp: number;
+
+  /** TTL in seconds */
+  ttl: number;
+
+  /** Number of models in cached data */
+  modelCount: number;
+
+  /** Human-readable age (e.g., "45m ago") */
+  age: string;
+
+  /** Whether the cache is stale (past TTL) */
+  isStale: boolean;
+}
+
+/**
+ * Cache statistics for all sources
+ */
+export interface CacheStats {
+  /** Cache directory path */
+  location: string;
+
+  /** Statistics per source */
+  sources: CacheSourceStats[];
+}
+
 // =============================================================================
 // API RESPONSE TYPES (Raw)
 // =============================================================================
