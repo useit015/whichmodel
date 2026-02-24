@@ -11,6 +11,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
 import type { ModelEntry, TextPricing } from "../types.js";
+import { generateFallbackRecommendation } from "../recommender/fallback.js";
 
 export interface RecommenderCriteria {
   modality: "text";
@@ -42,6 +43,9 @@ export const DEFAULT_RECOMMENDER_CRITERIA: RecommenderCriteria = {
   minContextLength: 32000,
 };
 
+const RECOMMENDER_SELECTION_TASK =
+  "Select the best-value model for analyzing user tasks and returning structured JSON recommendations.";
+
 /**
  * Check if a model family supports reasoning
  */
@@ -57,12 +61,9 @@ function supportsReasoning(model: ModelEntry): boolean {
   );
 }
 
-/**
- * Check if a model likely supports JSON mode (most modern text models do)
- */
-function supportsJsonMode(model: ModelEntry): boolean {
-  // Most text models support JSON mode
-  return model.modality === "text";
+function normalizeModelId(id: string): string {
+  const parts = id.split("::");
+  return parts.length > 1 ? parts.slice(1).join("::") : id;
 }
 
 /**
@@ -73,22 +74,22 @@ export function selectBestRecommender(
   criteria: RecommenderCriteria = DEFAULT_RECOMMENDER_CRITERIA
 ): ModelEntry | null {
   const candidates = models.filter((model) => {
+    // Recommender requests are sent through OpenRouter chat completions.
+    if (model.source !== "openrouter") return false;
+
     // Must be text modality
     if (model.modality !== criteria.modality) return false;
 
+    if (model.pricing.type !== "text") return false;
+    const pricing = model.pricing;
+
     // Must support reasoning
     if (!supportsReasoning(model)) return false;
-
-    // Must support JSON mode
-    if (!supportsJsonMode(model)) return false;
 
     // Must meet minimum context length
     if ((model.contextLength ?? 0) < criteria.minContextLength) return false;
 
     // Check pricing
-    const pricing = model.pricing as TextPricing;
-    if (pricing.type !== "text") return false;
-
     if (pricing.promptPer1mTokens > criteria.maxPromptPricePer1m) return false;
     if (pricing.completionPer1mTokens > criteria.maxCompletionPricePer1m) return false;
 
@@ -99,22 +100,23 @@ export function selectBestRecommender(
     return null;
   }
 
-  // Sort by total cost (prompt + completion) - lower is better
-  candidates.sort((a, b) => {
-    const aPricing = a.pricing as TextPricing;
-    const bPricing = b.pricing as TextPricing;
-    const aCost = aPricing.promptPer1mTokens + aPricing.completionPer1mTokens;
-    const bCost = bPricing.promptPer1mTokens + bPricing.completionPer1mTokens;
-    return aCost - bCost;
+  // Reuse the same fallback recommender tiering logic used by main `whichmodel`.
+  const selection = generateFallbackRecommendation(RECOMMENDER_SELECTION_TASK, candidates, {
+    modality: "text",
   });
+  const selectedId = selection.recommendations.cheapest.id;
 
-  return candidates[0] ?? null;
+  return candidates.find((model) => model.id === selectedId) ?? candidates[0] ?? null;
 }
 
 /**
  * Get the config file path
  */
 function getConfigPath(): string {
+  if (process.env.WHICHMODEL_CONFIG) {
+    return process.env.WHICHMODEL_CONFIG;
+  }
+
   if (process.platform === "win32") {
     const appData = process.env.APPDATA ?? path.join(os.homedir(), "AppData", "Roaming");
     return path.join(appData, "whichmodel", "config.json");
@@ -152,11 +154,11 @@ export async function updateConfigFile(updates: Partial<ConfigFile>): Promise<vo
   const updated = { ...existing, ...updates };
 
   // Ensure directory exists
-  await fs.mkdir(configDir, { recursive: true });
+  await fs.mkdir(configDir, { recursive: true, mode: 0o700 });
 
   // Write atomically
   const tempPath = `${configPath}.tmp`;
-  await fs.writeFile(tempPath, JSON.stringify(updated, null, 2));
+  await fs.writeFile(tempPath, JSON.stringify(updated, null, 2), { mode: 0o600 });
   await fs.rename(tempPath, configPath);
 }
 
@@ -168,12 +170,13 @@ export async function updateRecommenderModel(
   currentModel: string,
   criteria: RecommenderCriteria = DEFAULT_RECOMMENDER_CRITERIA
 ): Promise<RecommenderUpdate> {
+  const normalizedCurrentModel = normalizeModelId(currentModel);
   const best = selectBestRecommender(models, criteria);
 
   if (!best) {
     return {
       currentModel,
-      newModel: currentModel,
+      newModel: normalizedCurrentModel,
       newModelName: currentModel,
       changed: false,
       reasoning: "No models meet the recommender criteria.",
@@ -183,11 +186,14 @@ export async function updateRecommenderModel(
   }
 
   const bestPricing = best.pricing as TextPricing;
-  const changed = best.id !== currentModel;
+  const normalizedBestModel = normalizeModelId(best.id);
+  const changed = normalizedBestModel !== normalizedCurrentModel;
 
   // Find current model pricing for comparison
   let savings: RecommenderUpdate["savings"] = null;
-  const currentModelEntry = models.find((m) => m.id === currentModel || m.id.endsWith(`/${currentModel}`));
+  const currentModelEntry = models.find(
+    (m) => normalizeModelId(m.id) === normalizedCurrentModel
+  );
   if (currentModelEntry && currentModelEntry.pricing.type === "text") {
     const currentPricing = currentModelEntry.pricing as TextPricing;
     savings = {
@@ -198,13 +204,12 @@ export async function updateRecommenderModel(
 
   // Update config file if changed
   if (changed) {
-    const modelId = best.id.replace(/^openrouter::/, "");
-    await updateConfigFile({ recommenderModel: modelId });
+    await updateConfigFile({ recommenderModel: normalizedBestModel });
   }
 
   return {
     currentModel,
-    newModel: best.id,
+    newModel: normalizedBestModel,
     newModelName: best.name,
     changed,
     reasoning: changed

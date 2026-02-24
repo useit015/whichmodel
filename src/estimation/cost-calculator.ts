@@ -164,7 +164,9 @@ export function estimateCost(model: ModelEntry, workload: WorkloadSpec): CostEst
         costPerUnit = pricing.perImage;
         breakdown = `${monthlyUnits.toLocaleString()} images/month × $${pricing.perImage.toFixed(4)}/image`;
       } else if (pricing.perMegapixel && workload.parameters?.resolution) {
-        const [width, height] = workload.parameters.resolution.split("x").map(Number);
+        const [widthRaw, heightRaw] = workload.parameters.resolution.split("x");
+        const width = Number(widthRaw);
+        const height = Number(heightRaw);
         // Validate resolution is numeric
         if (Number.isFinite(width) && Number.isFinite(height) && width > 0 && height > 0) {
           const megapixels = (width * height) / 1_000_000;

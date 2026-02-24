@@ -37,6 +37,19 @@ export interface CompareResult {
   };
 }
 
+export interface CompareJSONOutput {
+  winner: CompareResult["winner"];
+  reasoning: string;
+  modelA: CompareResult["modelA"] & {
+    id: string;
+    name: string;
+  };
+  modelB: CompareResult["modelB"] & {
+    id: string;
+    name: string;
+  };
+}
+
 const COMPARE_SYSTEM_PROMPT = `You are an expert AI model evaluator. Your task is to compare two AI models for a specific use case.
 
 You will receive:
@@ -275,7 +288,7 @@ export function formatCompareJSON(
   result: CompareResult,
   modelA: ModelEntry,
   modelB: ModelEntry
-): object {
+): CompareJSONOutput {
   return {
     winner: result.winner,
     reasoning: result.reasoning,

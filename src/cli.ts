@@ -313,13 +313,22 @@ program
       }
 
       const spinner = ora("Fetching catalog...").start();
-      const sources = options.source ? [options.source] : parseSources(undefined);
+      const sources = options.source ? parseSources(options.source) : parseSources(undefined);
+      if (options.source && sources.length !== 1) {
+        throw new WhichModelError(
+          `Invalid source '${options.source}'.`,
+          ExitCode.INVALID_ARGUMENTS,
+          "Use a single source value like --source openrouter"
+        );
+      }
+      validateSupportedSources(sources);
       const models = await fetchCatalogModels(sources, config);
       spinner.stop();
+      const sourceFilter = options.source ? sources[0] : undefined;
 
       const listOptions = {
         modality: options.modality as Modality | undefined,
-        source: options.source,
+        source: sourceFilter,
         sort: options.sort as "price" | "name" | "context",
         limit,
       };
@@ -513,13 +522,30 @@ function applyExclusions(models: ModelEntry[], excludeArg?: string): ModelEntry[
     return models;
   }
 
+  // Pre-compile patterns for O(n) filtering instead of O(n*m)
+  const exactMatches = new Set<string>();
+  const prefixMatches: string[] = [];
+
+  for (const pattern of patterns) {
+    if (pattern.endsWith("*")) {
+      prefixMatches.push(pattern.slice(0, -1));
+    } else {
+      exactMatches.add(pattern);
+    }
+  }
+
   return models.filter((model) => {
-    return !patterns.some((pattern) => {
-      if (pattern.endsWith("*")) {
-        return model.id.startsWith(pattern.slice(0, -1));
+    // Check exact match first (O(1) lookup)
+    if (exactMatches.has(model.id)) {
+      return false;
+    }
+    // Check prefix matches
+    for (const prefix of prefixMatches) {
+      if (model.id.startsWith(prefix)) {
+        return false;
       }
-      return model.id === pattern;
-    });
+    }
+    return true;
   });
 }
 

@@ -204,7 +204,14 @@ function repairRecommendationIds(
   recommendation: Recommendation,
   validIds: Set<string>
 ): Recommendation {
-  const patched: Recommendation = JSON.parse(JSON.stringify(recommendation)) as Recommendation;
+  // Use structuredClone for safe deep copying, with JSON fallback for older environments
+  let patched: Recommendation;
+  try {
+    patched = structuredClone(recommendation);
+  } catch {
+    // Fallback to JSON parse/stringify for environments without structuredClone
+    patched = JSON.parse(JSON.stringify(recommendation)) as Recommendation;
+  }
 
   for (const tier of ["cheapest", "balanced", "best"] as const) {
     const currentId = patched.recommendations[tier].id;

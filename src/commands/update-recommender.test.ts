@@ -1,8 +1,13 @@
 import { describe, expect, it } from "vitest";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import type { ModelEntry, TextPricing } from "../types.js";
 import {
   selectBestRecommender,
   DEFAULT_RECOMMENDER_CRITERIA,
+  updateConfigFile,
+  updateRecommenderModel,
 } from "./update-recommender.js";
 
 function createTextModel(overrides: Partial<ModelEntry> = {}): ModelEntry {
@@ -124,5 +129,73 @@ describe("selectBestRecommender", () => {
     // The unknown family model should be filtered out as not supporting reasoning
     expect(result).not.toBeNull();
     expect(result?.family).toBe("deepseek");
+  });
+
+  it("only selects from openrouter source", () => {
+    const models: ModelEntry[] = [
+      createTextModel({
+        id: "replicate::deepseek/free",
+        source: "replicate",
+        name: "Replicate DeepSeek",
+        family: "deepseek",
+        pricing: { type: "text", promptPer1mTokens: 0.01, completionPer1mTokens: 0.01 },
+      }),
+      createTextModel({
+        id: "openrouter::deepseek/deepseek-v3.2",
+        source: "openrouter",
+        name: "OpenRouter DeepSeek",
+        family: "deepseek",
+        pricing: { type: "text", promptPer1mTokens: 0.25, completionPer1mTokens: 0.38 },
+      }),
+    ];
+
+    const result = selectBestRecommender(models, DEFAULT_RECOMMENDER_CRITERIA);
+
+    expect(result).not.toBeNull();
+    expect(result?.source).toBe("openrouter");
+  });
+});
+
+describe("updateRecommenderModel", () => {
+  it("treats prefixed and unprefixed current model IDs as the same model", async () => {
+    const models: ModelEntry[] = [
+      createTextModel({
+        id: "openrouter::deepseek/deepseek-v3.2",
+        name: "DeepSeek V3.2",
+        family: "deepseek",
+        pricing: { type: "text", promptPer1mTokens: 0.25, completionPer1mTokens: 0.38 },
+      }),
+    ];
+
+    const result = await updateRecommenderModel(models, "deepseek/deepseek-v3.2");
+
+    expect(result.changed).toBe(false);
+    expect(result.newModel).toBe("deepseek/deepseek-v3.2");
+    expect(result.savings).not.toBeNull();
+    expect(result.savings?.promptPer1m).toBe(0);
+    expect(result.savings?.completionPer1m).toBe(0);
+  });
+});
+
+describe("updateConfigFile", () => {
+  it("writes to WHICHMODEL_CONFIG when provided", async () => {
+    const original = process.env.WHICHMODEL_CONFIG;
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "whichmodel-config-test-"));
+    const configPath = path.join(tempDir, "custom-config.json");
+    process.env.WHICHMODEL_CONFIG = configPath;
+
+    try {
+      await updateConfigFile({ recommenderModel: "deepseek/deepseek-v3.2" });
+      const content = await fs.readFile(configPath, "utf8");
+      const parsed = JSON.parse(content) as { recommenderModel?: string };
+      expect(parsed.recommenderModel).toBe("deepseek/deepseek-v3.2");
+    } finally {
+      if (original === undefined) {
+        delete process.env.WHICHMODEL_CONFIG;
+      } else {
+        process.env.WHICHMODEL_CONFIG = original;
+      }
+      await fs.rm(tempDir, { recursive: true, force: true });
+    }
   });
 });
