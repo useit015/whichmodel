@@ -100,7 +100,9 @@ program
         requireApiKey(config);
 
         const spinner = ora("Analyzing models for best recommender...").start();
-        const sources = parseSources(options.sources);
+        const sources = options.sources
+          ? parseSources(options.sources)
+          : getDefaultCatalogSources(config);
         let update: Awaited<ReturnType<typeof updateRecommenderModel>>;
         try {
           const models = await fetchCatalogModels(sources, config, noCache);
@@ -120,10 +122,12 @@ program
       const task = taskWords.join(" ").trim();
       validateTask(task);
       const constraints = parseConstraints(options);
-      const sources = parseSources(options.sources);
+      const config = getConfig();
+      const sources = options.sources
+        ? parseSources(options.sources)
+        : getDefaultCatalogSources(config);
       validateSupportedSources(sources);
 
-      const config = getConfig();
       requireApiKey(config);
 
       const validationMessage = validateConfig(config);
@@ -228,7 +232,7 @@ program
 
       const spinner = ora("Fetching catalog...").start();
       try {
-        const sources = parseSources(undefined); // Use default sources
+        const sources = getDefaultCatalogSources(config);
         const models = await fetchCatalogModels(sources, config, noCache);
 
         // Find the models
@@ -376,7 +380,9 @@ program
         );
       }
 
-      const sources = options.source ? parseSources(options.source) : parseSources(undefined);
+      const sources = options.source
+        ? parseSources(options.source)
+        : getDefaultCatalogSources(config);
       if (options.source && sources.length !== 1) {
         throw new WhichModelError(
           `Invalid source '${options.source}'.`,
@@ -427,7 +433,7 @@ program
       const asJson = options.json ?? Boolean(mergedOptions.json);
 
       const spinner = ora("Fetching catalog...").start();
-      const sources = parseSources(undefined); // Use default sources
+      const sources = getDefaultCatalogSources(config);
       let models: ModelEntry[];
       try {
         models = await fetchCatalogModels(sources, config, noCache);
@@ -477,6 +483,7 @@ export {
   validateTask,
   parseConstraints,
   parseSources,
+  getDefaultCatalogSources,
   validateSupportedSources,
   shouldBypassCache,
 };
@@ -688,6 +695,17 @@ function isResolutionAtLeast(actual: string, minimum: string): boolean {
 
 function parseSources(sourcesArg?: string): string[] {
   return parseSourcesCsv(sourcesArg);
+}
+
+function getDefaultCatalogSources(config: Config): string[] {
+  const sources = ["openrouter"];
+  if (config.falApiKey) {
+    sources.push("fal");
+  }
+  if (config.replicateApiToken) {
+    sources.push("replicate");
+  }
+  return sources;
 }
 
 function validateSupportedSources(sources: string[]): void {

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   fetchCatalogModelsFromFetchers,
+  getDefaultCatalogSources,
   parseConstraints,
   parseSources,
   shouldBypassCache,
@@ -108,6 +109,30 @@ describe("parseSources", () => {
         exitCode: ExitCode.INVALID_ARGUMENTS,
       })
     );
+  });
+});
+
+describe("getDefaultCatalogSources", () => {
+  it("returns openrouter only when optional source keys are missing", () => {
+    expect(
+      getDefaultCatalogSources({
+        apiKey: "sk-or-test",
+        recommenderModel: "deepseek/deepseek-v3.2",
+        cacheTtl: 3600,
+      })
+    ).toEqual(["openrouter"]);
+  });
+
+  it("includes fal and replicate when those keys are configured", () => {
+    expect(
+      getDefaultCatalogSources({
+        apiKey: "sk-or-test",
+        recommenderModel: "deepseek/deepseek-v3.2",
+        cacheTtl: 3600,
+        falApiKey: "fal_test",
+        replicateApiToken: "r8_test",
+      })
+    ).toEqual(["openrouter", "fal", "replicate"]);
   });
 });
 
