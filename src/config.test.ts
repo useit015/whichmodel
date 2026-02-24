@@ -65,11 +65,21 @@ describe("validateConfig", () => {
 
   it("returns null for valid API key", () => {
     const result = validateConfig({
-      apiKey: "sk-or-valid",
+      apiKey: "sk-or-v1-valid-test-key",
       recommenderModel: "x",
       cacheTtl: 1,
     });
     expect(result).toBeNull();
+  });
+
+  it("returns warning for API key without v1 prefix", () => {
+    const result = validateConfig({
+      apiKey: "sk-or-valid",
+      recommenderModel: "x",
+      cacheTtl: 1,
+    });
+    expect(result).toContain("Warning");
+    expect(result).toContain("sk-or-v1-");
   });
 });
 

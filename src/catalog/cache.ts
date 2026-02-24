@@ -128,12 +128,13 @@ export async function writeCache(
     source,
   };
 
-  // Ensure cache directory exists
-  await fs.mkdir(cacheDir, { recursive: true });
+  // Ensure cache directory exists with secure permissions
+  await fs.mkdir(cacheDir, { recursive: true, mode: 0o700 });
 
   // Atomic write: write to temp file, then rename
+  // Use mode 0o600 to ensure only owner can read cache files
   const tempPath = `${cachePath}.tmp`;
-  await fs.writeFile(tempPath, JSON.stringify(cache, null, 2));
+  await fs.writeFile(tempPath, JSON.stringify(cache, null, 2), { mode: 0o600 });
   await fs.rename(tempPath, cachePath);
 }
 

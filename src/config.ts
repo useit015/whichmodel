@@ -44,8 +44,8 @@ export function validateConfig(config: Config): string | null {
     ].join("\n");
   }
 
-  if (!config.apiKey.startsWith("sk-or-")) {
-    return "Warning: API key doesn't look like an OpenRouter key (should start with sk-or-)";
+  if (!config.apiKey.startsWith("sk-or-v1-")) {
+    return "Warning: API key doesn't look like an OpenRouter key (should start with sk-or-v1-)";
   }
 
   return null;

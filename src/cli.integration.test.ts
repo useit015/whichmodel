@@ -130,7 +130,7 @@ describe("CLI integration error handling", () => {
   });
 
   it("does not leak API keys in CLI output on failures", () => {
-    const openrouterKey = "sk-or-super-secret-example-key";
+    const openrouterKey = "sk-or-v1-test-fake-key-not-real-xxxxx";
     const result = runCLI(["task", "--sources", "fal", "--verbose"], {
       OPENROUTER_API_KEY: openrouterKey,
       FAL_API_KEY: undefined,
