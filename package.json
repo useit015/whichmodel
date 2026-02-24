@@ -1,6 +1,6 @@
 {
   "name": "whichmodel",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Tell me what you want to build. I'll tell you which AI model to use.",
   "type": "module",
   "bin": {
@@ -42,5 +42,13 @@
     "cli",
     "openrouter"
   ],
-  "license": "MIT"
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/whichmodel/whichmodel.git"
+  },
+  "bugs": {
+    "url": "https://github.com/whichmodel/whichmodel/issues"
+  },
+  "homepage": "https://github.com/whichmodel/whichmodel#readme"
 }
