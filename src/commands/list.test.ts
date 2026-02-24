@@ -223,4 +223,23 @@ describe("formatListTerminal", () => {
 
     expect(output).toContain("showing top 1");
   });
+
+  it("truncates long cells to keep table layout stable", () => {
+    const items = [
+      {
+        id: "fal::fal-ai/chrono-edit-lora-gallery/paintbrush/with/very/long/identifier",
+        name: "A Very Long Model Name That Should Be Truncated In Narrow Terminals",
+        pricing: "$0.000123 / image with additional details",
+        context: 4096,
+        modality: "image",
+        source: "fal",
+      },
+    ];
+
+    const output = formatListTerminal(items, 1, { sort: "price", limit: 5 }, true);
+
+    expect(output).toContain("...");
+    expect(output).toContain("┌");
+    expect(output).toContain("└");
+  });
 });

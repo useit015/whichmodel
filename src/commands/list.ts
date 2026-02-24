@@ -27,6 +27,40 @@ export interface ModelListItem {
   source: string;
 }
 
+const DEFAULT_TERMINAL_COLUMNS = 80;
+const MIN_CONTENT_WIDTH = 72;
+
+function getMaxContentWidth(): number {
+  const columns = process.stdout?.columns;
+  if (typeof columns !== "number" || !Number.isFinite(columns) || columns <= 0) {
+    return DEFAULT_TERMINAL_COLUMNS - 8;
+  }
+  return Math.max(MIN_CONTENT_WIDTH, columns - 8);
+}
+
+function truncateCell(value: string, width: number): string {
+  if (value.length <= width) {
+    return value;
+  }
+  if (width <= 3) {
+    return value.slice(0, width);
+  }
+  return `${value.slice(0, width - 3)}...`;
+}
+
+function fitCell(value: string, width: number): string {
+  return truncateCell(value, width).padEnd(width);
+}
+
+function buildSeparator(
+  left: string,
+  middle: string,
+  right: string,
+  widths: number[]
+): string {
+  return `${left}${widths.map((width) => "─".repeat(width + 2)).join(middle)}${right}`;
+}
+
 /**
  * Get the primary price for a model based on its modality
  */
@@ -169,33 +203,59 @@ export function formatListTerminal(
     });
   }
 
-  // Calculate column widths
-  const idWidth = Math.max(10, ...items.map((i) => i.id.length)) + 2;
-  const nameWidth = Math.max(10, ...items.map((i) => i.name.length)) + 2;
-  const pricingWidth = Math.max(16, ...items.map((i) => i.pricing.length)) + 2;
-  const contextWidth = 8;
-  const sourceWidth = Math.max(6, ...items.map((i) => i.source.length)) + 2;
+  // Calculate and fit column widths to terminal content width
+  const widths: [number, number, number, number, number] = [
+    Math.max(10, "ID".length, ...items.map((item) => item.id.length)),
+    Math.max(10, "Name".length, ...items.map((item) => item.name.length)),
+    Math.max(16, "Pricing".length, ...items.map((item) => item.pricing.length)),
+    Math.max(7, "Context".length),
+    Math.max(6, "Source".length, ...items.map((item) => item.source.length)),
+  ];
+  const maxWidths: [number, number, number, number, number] = [56, 28, 24, 8, 12];
+  for (const index of [0, 1, 2, 3, 4] as const) {
+    widths[index] = Math.min(widths[index], maxWidths[index]);
+  }
+  const minWidths: [number, number, number, number, number] = [18, 12, 12, 7, 6];
+  const tableWidth = (): number => widths.reduce((sum, width) => sum + width, 0) + 16;
+  const maxContentWidth = getMaxContentWidth();
 
-  // Table header
-  const separator = "─".repeat(idWidth + nameWidth + pricingWidth + contextWidth + sourceWidth + 8);
-  lines.push(`┌${separator}┐`);
+  let overflow = tableWidth() - maxContentWidth;
+  if (overflow > 0) {
+    const shrinkOrder: Array<0 | 1 | 2 | 3 | 4> = [0, 1, 2, 4, 3];
+    for (const columnIndex of shrinkOrder) {
+      if (overflow <= 0) {
+        break;
+      }
+      const reducible = widths[columnIndex] - minWidths[columnIndex];
+      if (reducible <= 0) {
+        continue;
+      }
+      const reduction = Math.min(reducible, overflow);
+      widths[columnIndex] -= reduction;
+      overflow -= reduction;
+    }
+  }
+  const [idWidth, nameWidth, pricingWidth, contextWidth, sourceWidth] = widths;
+
+  lines.push(buildSeparator("┌", "┬", "┐", widths));
   lines.push(
-    `│ ${c.bold("ID".padEnd(idWidth))}│ ${c.bold("Name".padEnd(nameWidth))}│ ${c.bold("Pricing".padEnd(pricingWidth))}│ ${c.bold("Context".padEnd(contextWidth))}│ ${c.bold("Source")} │`
+    `│ ${c.bold(fitCell("ID", idWidth))} │ ${c.bold(fitCell("Name", nameWidth))} │ ${c.bold(
+      fitCell("Pricing", pricingWidth)
+    )} │ ${c.bold(fitCell("Context", contextWidth))} │ ${c.bold(fitCell("Source", sourceWidth))} │`
   );
-  lines.push(`├${separator}┤`);
+  lines.push(buildSeparator("├", "┼", "┤", widths));
 
   // Table rows
   for (const item of items) {
-    const idPadded = item.id.padEnd(idWidth);
-    const namePadded = item.name.slice(0, nameWidth - 2).padEnd(nameWidth);
-    const pricingPadded = item.pricing.padEnd(pricingWidth);
-    const contextPadded = formatContext(item.context).padEnd(contextWidth);
-    const sourcePadded = item.source.padEnd(sourceWidth - 1);
-
-    lines.push(`│ ${c.cyan(idPadded)}│ ${namePadded}│ ${pricingPadded}│ ${contextPadded}│ ${sourcePadded}│`);
+    lines.push(
+      `│ ${c.cyan(fitCell(item.id, idWidth))} │ ${fitCell(item.name, nameWidth)} │ ${fitCell(
+        item.pricing,
+        pricingWidth
+      )} │ ${fitCell(formatContext(item.context), contextWidth)} │ ${fitCell(item.source, sourceWidth)} │`
+    );
   }
 
-  lines.push(`└${separator}┘`);
+  lines.push(buildSeparator("└", "┴", "┘", widths));
 
   // Footer hint
   if (options.limit < total) {
