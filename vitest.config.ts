@@ -8,6 +8,7 @@ export default defineConfig({
       provider: "v8",
       reporter: ["text", "html"],
       include: ["src/catalog/**/*.ts"],
+      exclude: ["src/catalog/source.ts"], // Interface only, no implementation
       thresholds: {
         lines: 80,
         functions: 80,

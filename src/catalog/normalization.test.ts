@@ -212,6 +212,90 @@ describe("normalizeFalModel", () => {
     expect(normalized?.inputModalities).toEqual(["text"]);
     expect(normalized?.outputModalities).toEqual(["audio"]);
   });
+
+  it("normalizes audio tts with per_character pricing", () => {
+    const raw: FalModel = {
+      id: "fal-ai/tts-char",
+      name: "TTS Character",
+      category: "text-to-speech",
+      pricing: {
+        type: "per_character",
+        amount: 0.0001,
+      },
+    };
+
+    const normalized = normalizeFalModel(raw);
+    expect(normalized).not.toBeNull();
+    expect(normalized?.pricing).toMatchObject({ type: "audio", perCharacter: 0.0001 });
+  });
+
+  it("normalizes video-to-video category", () => {
+    const raw: FalModel = {
+      id: "fal-ai/video-edit",
+      name: "Video Editor",
+      category: "video-to-video",
+      pricing: {
+        type: "per_generation",
+        amount: 0.5,
+      },
+    };
+
+    const normalized = normalizeFalModel(raw);
+    expect(normalized).not.toBeNull();
+    expect(normalized?.modality).toBe("video");
+    expect(normalized?.inputModalities).toEqual(["video"]);
+    expect(normalized?.outputModalities).toEqual(["video"]);
+  });
+
+  it("normalizes image-to-* category with image input", () => {
+    const raw: FalModel = {
+      id: "fal-ai/image-transform",
+      name: "Image Transformer",
+      category: "image-to-image",
+      pricing: {
+        type: "per_image",
+        amount: 0.03,
+      },
+    };
+
+    const normalized = normalizeFalModel(raw);
+    expect(normalized).not.toBeNull();
+    expect(normalized?.inputModalities).toEqual(["image"]);
+  });
+
+  it("normalizes speech-to-* category with audio input", () => {
+    const raw: FalModel = {
+      id: "fal-ai/speech-transform",
+      name: "Speech Transformer",
+      category: "speech-to-speech",
+      pricing: {
+        type: "per_second",
+        amount: 0.02,
+      },
+    };
+
+    const normalized = normalizeFalModel(raw);
+    expect(normalized).not.toBeNull();
+    expect(normalized?.modality).toBe("audio_generation");
+    expect(normalized?.inputModalities).toEqual(["audio"]);
+    expect(normalized?.outputModalities).toEqual(["audio"]);
+  });
+
+  it("normalizes video with per_second pricing", () => {
+    const raw: FalModel = {
+      id: "fal-ai/video-gen",
+      name: "Video Generator",
+      category: "text-to-video",
+      pricing: {
+        type: "per_second",
+        amount: 0.1,
+      },
+    };
+
+    const normalized = normalizeFalModel(raw);
+    expect(normalized).not.toBeNull();
+    expect(normalized?.pricing).toMatchObject({ type: "video", perSecond: 0.1 });
+  });
 });
 
 describe("normalizeReplicateModel", () => {
@@ -333,6 +417,83 @@ describe("normalizeReplicateModel", () => {
 
     expect(normalizeReplicateModel(raw)).toBeNull();
   });
+
+  it("returns null when schema is missing", () => {
+    const raw: ReplicateModel = {
+      owner: "meta",
+      name: "no-schema-model",
+      description: "Model without schema",
+      pricing: {
+        per_image: 0.02,
+      },
+    };
+
+    // Models without schema and no recognizable metadata keywords return null
+    expect(normalizeReplicateModel(raw)).toBeNull();
+  });
+
+  it("infers video modality from description keywords", () => {
+    const raw: ReplicateModel = {
+      owner: "runway",
+      name: "gen3-video",
+      description: "Generate video from text prompts",
+      pricing: {
+        per_generation: 0.5,
+      },
+    };
+
+    const normalized = normalizeReplicateModel(raw);
+    expect(normalized).not.toBeNull();
+    expect(normalized?.modality).toBe("video");
+  });
+
+  it("infers image modality from per_megapixel pricing", () => {
+    const raw: ReplicateModel = {
+      owner: "stability",
+      name: "sdxl",
+      description: "Image generation",
+      pricing: {
+        per_megapixel: 0.01,
+      },
+    };
+
+    const normalized = normalizeReplicateModel(raw);
+    expect(normalized).not.toBeNull();
+    expect(normalized?.modality).toBe("image");
+    expect(normalized?.pricing.type).toBe("image");
+  });
+
+  it("infers video modality from per_second pricing", () => {
+    const raw: ReplicateModel = {
+      owner: "runway",
+      name: "video-gen",
+      description: "Video generation model",
+      pricing: {
+        per_second: 0.1,
+      },
+    };
+
+    const normalized = normalizeReplicateModel(raw);
+    expect(normalized).not.toBeNull();
+    expect(normalized?.modality).toBe("video");
+    expect(normalized?.pricing).toMatchObject({ type: "video", perSecond: 0.1 });
+  });
+
+  it("infers audio modality from per_minute pricing", () => {
+    const raw: ReplicateModel = {
+      owner: "openai",
+      name: "whisper",
+      description: "Audio transcription model",
+      pricing: {
+        per_minute: 0.006,
+      },
+    };
+
+    const normalized = normalizeReplicateModel(raw);
+    expect(normalized).not.toBeNull();
+    expect(normalized?.modality).toBe("audio_stt");
+    expect(normalized?.pricing).toMatchObject({ type: "audio", perMinute: 0.006 });
+  });
 });
 
 describe("classifyFalCategory", () => {
@@ -345,5 +506,31 @@ describe("classifyFalCategory", () => {
     { category: "training", expected: null },
   ])("maps '$category' to $expected", ({ category, expected }) => {
     expect(classifyFalCategory(category)).toBe(expected);
+  });
+});
+
+describe("classifyModality edge cases", () => {
+  it("classifies sound output as audio_generation", () => {
+    expect(classifyModality(["text"], ["sound"])).toBe("audio_generation");
+  });
+
+  it("classifies vector output as embedding", () => {
+    expect(classifyModality(["text"], ["vector"])).toBe("embedding");
+  });
+
+  it("classifies pure audio->text as audio_stt", () => {
+    expect(classifyModality(["audio"], ["text"])).toBe("audio_stt");
+  });
+
+  it("classifies multimodal when more than 2 unique modalities", () => {
+    expect(classifyModality(["text", "audio", "video"], ["text", "image"])).toBe("multimodal");
+  });
+
+  it("classifies image->text as vision", () => {
+    expect(classifyModality(["image"], ["text"])).toBe("vision");
+  });
+
+  it("defaults to text when no other modality matches", () => {
+    expect(classifyModality([], [])).toBe("text");
   });
 });
