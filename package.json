@@ -46,10 +46,10 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/whichmodel/whichmodel.git"
+    "url": "https://github.com/useit015/whichmodel.git"
   },
   "bugs": {
-    "url": "https://github.com/whichmodel/whichmodel/issues"
+    "url": "https://github.com/useit015/whichmodel/issues"
   },
-  "homepage": "https://github.com/whichmodel/whichmodel#readme"
+  "homepage": "https://github.com/useit015/whichmodel#readme"
 }
