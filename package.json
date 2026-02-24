@@ -42,6 +42,7 @@
     "cli",
     "openrouter"
   ],
+  "author": "Oussama Nahiz",
   "license": "MIT",
   "repository": {
     "type": "git",

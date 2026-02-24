@@ -164,3 +164,7 @@ npm test
 npm run test:coverage
 npm run build
 ```
+
+## Author
+
+Oussama Nahiz
