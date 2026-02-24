@@ -63,7 +63,7 @@ Command used:
 npm run dev -- "summarize legal contracts and flag risks" --no-color --no-cache
 ```
 
-Exact output sample (captured on **February 24, 2026**):
+Sample output:
 
 ```text
 > whichmodel@1.0.0 dev
@@ -113,7 +113,7 @@ whichmodel compare \
   --json --no-cache
 ```
 
-Exact output sample (captured on Feb 24, 2026):
+Sample output:
 
 ```json
 {
@@ -163,7 +163,7 @@ Exact output sample (captured on Feb 24, 2026):
 whichmodel list --source openrouter --limit 5 --no-cache
 ```
 
-Exact output sample (captured on Feb 24, 2026):
+Sample output:
 
 ```text
 > whichmodel@1.0.0 dev
@@ -197,7 +197,7 @@ whichmodel list --source openrouter --limit 20 --json
 whichmodel stats --json --no-cache
 ```
 
-Exact output sample (captured on Feb 24, 2026):
+Sample output:
 
 ```json
 {
