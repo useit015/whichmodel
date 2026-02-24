@@ -9,6 +9,7 @@
 
 import chalk, { Chalk } from "chalk";
 import type { Config, ModelEntry, Modality } from "../types.js";
+import { renderBox } from "../formatter/box.js";
 import { getModelPrimaryPrice, hasUsablePrice } from "../model-pricing.js";
 
 export interface ModalityStats {
@@ -244,7 +245,11 @@ export function formatStatsTerminal(stats: CatalogStats, noColor: boolean = fals
     lines.push(`Missing sources: ${c.yellow(missing)}`);
   }
 
-  return lines.join("\n");
+  return renderBox(lines.join("\n"), {
+    title: "Stats",
+    noColor,
+    borderColor: "blue",
+  });
 }
 
 /**

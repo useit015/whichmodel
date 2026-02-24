@@ -10,6 +10,7 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { renderBox } from "../formatter/box.js";
 import type { CacheEntry, CacheStats, CacheSourceStats, ModelEntry } from "../types.js";
 
 /**
@@ -227,7 +228,7 @@ export async function getCacheStats(configuredTtl: number = 3600): Promise<Cache
 /**
  * Format cache statistics for terminal output
  */
-export function formatCacheStats(stats: CacheStats): string {
+export function formatCacheStats(stats: CacheStats, noColor: boolean = false): string {
   const lines: string[] = [];
 
   lines.push("Cache Statistics:");
@@ -236,7 +237,11 @@ export function formatCacheStats(stats: CacheStats): string {
 
   if (stats.sources.length === 0) {
     lines.push("  No cached data.");
-    return lines.join("\n");
+    return renderBox(lines.join("\n"), {
+      title: "Cache",
+      noColor,
+      borderColor: "magenta",
+    });
   }
 
   lines.push("  Source         Age        TTL    Models");
@@ -250,5 +255,9 @@ export function formatCacheStats(stats: CacheStats): string {
     );
   }
 
-  return lines.join("\n");
+  return renderBox(lines.join("\n"), {
+    title: "Cache",
+    noColor,
+    borderColor: "magenta",
+  });
 }

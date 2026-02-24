@@ -336,6 +336,7 @@ describe("formatCacheStats", () => {
     const output = formatCacheStats(stats);
     expect(output).toContain("Cache Statistics:");
     expect(output).toContain("No cached data");
+    expect(output).toContain("╭");
   });
 
   it("formats stats with sources correctly", () => {
@@ -367,5 +368,6 @@ describe("formatCacheStats", () => {
     expect(output).toContain("312");
     expect(output).toContain("47");
     expect(output).toContain("stale");
+    expect(output).toContain("╭");
   });
 });

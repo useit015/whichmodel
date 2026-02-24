@@ -10,6 +10,7 @@ import chalk, { Chalk } from "chalk";
 import fs from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
+import { renderBox } from "../formatter/box.js";
 import type { ModelEntry, TextPricing } from "../types.js";
 import { generateFallbackRecommendation } from "../recommender/fallback.js";
 
@@ -260,5 +261,9 @@ export function formatRecommenderUpdate(update: RecommenderUpdate, noColor: bool
     lines.push(c.dim(`Config file updated: ${getConfigPath()}`));
   }
 
-  return lines.join("\n");
+  return renderBox(lines.join("\n"), {
+    title: "Recommender",
+    noColor,
+    borderColor: "cyan",
+  });
 }

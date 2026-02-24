@@ -198,12 +198,14 @@ describe("formatListTerminal", () => {
 
     expect(output).toContain("Test Model");
     expect(output).toContain("openrouter");
+    expect(output).toContain("╭");
   });
 
   it("shows no models message when empty", () => {
     const output = formatListTerminal([], 0, { sort: "price", limit: 50 });
 
     expect(output).toContain("No models found");
+    expect(output).toContain("╭");
   });
 
   it("shows limit hint when results are limited", () => {

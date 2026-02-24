@@ -189,6 +189,7 @@ describe("formatStatsTerminal", () => {
     expect(output).toContain("Image");
     expect(output).toContain("90");
     expect(output).toContain("10");
+    expect(output).toContain("╭");
   });
 
   it("handles empty catalog", () => {
@@ -203,5 +204,6 @@ describe("formatStatsTerminal", () => {
     const output = formatStatsTerminal(stats, true);
 
     expect(output).toContain("0 models");
+    expect(output).toContain("╭");
   });
 });

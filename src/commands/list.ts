@@ -8,6 +8,7 @@
 
 import chalk, { Chalk } from "chalk";
 import type { Modality, ModelEntry } from "../types.js";
+import { renderBox } from "../formatter/box.js";
 import { getModelPrimaryPrice, hasUsablePrice } from "../model-pricing.js";
 
 export interface ListOptions {
@@ -161,7 +162,11 @@ export function formatListTerminal(
 
   if (items.length === 0) {
     lines.push("No models found matching the criteria.");
-    return lines.join("\n");
+    return renderBox(lines.join("\n"), {
+      title: "Models",
+      noColor,
+      borderColor: "green",
+    });
   }
 
   // Calculate column widths
@@ -198,7 +203,11 @@ export function formatListTerminal(
     lines.push(c.dim(`Use --limit ${total} to show all, or filter with --modality, --source`));
   }
 
-  return lines.join("\n");
+  return renderBox(lines.join("\n"), {
+    title: "Models",
+    noColor,
+    borderColor: "green",
+  });
 }
 
 /**

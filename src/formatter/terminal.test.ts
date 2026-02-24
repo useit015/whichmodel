@@ -46,6 +46,8 @@ describe("formatTerminal", () => {
     expect(output).toContain("⚖️ Balanced —");
     expect(output).toContain("🏆 Best —");
     expect(output).toContain("⚡ This recommendation cost $0.0030");
+    expect(output).toContain("╭");
+    expect(output).toContain("╰");
   });
 
   it("renders verbose token and timing metadata", () => {
@@ -63,5 +65,6 @@ describe("formatTerminal", () => {
 
     expect(output).toContain("Tokens: prompt=1000, completion=200");
     expect(output).toContain("Timing: catalog=45ms, recommend=120ms, total=180ms");
+    expect(output).toContain("╭");
   });
 });

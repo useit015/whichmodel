@@ -1,5 +1,6 @@
 import chalk, { Chalk } from "chalk";
 import type { Recommendation } from "../types.js";
+import { renderBox } from "./box.js";
 
 export interface TerminalMeta {
   recommenderModel: string;
@@ -69,5 +70,9 @@ export function formatTerminal(rec: Recommendation, meta: TerminalMeta): string 
     }
   }
 
-  return lines.join("\n");
+  return renderBox(lines.join("\n"), {
+    title: "Recommendations",
+    noColor: meta.noColor,
+    borderColor: "cyan",
+  });
 }
