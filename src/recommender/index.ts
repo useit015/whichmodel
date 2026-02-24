@@ -1,5 +1,6 @@
 import { compressForLLM, groupByModality } from "../catalog/compressor.js";
 import { parseRecommendationPayload } from "../schemas/llm-schemas.js";
+import { hasUsablePrice } from "../model-pricing.js";
 import {
   ExitCode,
   WhichModelError,
@@ -52,9 +53,17 @@ export async function recommend(options: RecommendOptions): Promise<RecommendRes
       "Check your source configuration and retry."
     );
   }
+  const pricedModels = models.filter((model) => hasUsablePrice(model));
+  if (pricedModels.length === 0) {
+    throw new WhichModelError(
+      "No priced models found from configured sources.",
+      ExitCode.NO_MODELS_FOUND,
+      "Enable additional sources or retry later for updated pricing."
+    );
+  }
 
   const recommendationStartedAt = Date.now();
-  const compressed = compressForLLM(models);
+  const compressed = compressForLLM(pricedModels);
   const grouped = groupByModality(compressed);
 
   let recommendation: Recommendation;
@@ -79,28 +88,34 @@ export async function recommend(options: RecommendOptions): Promise<RecommendRes
       completionTokens
     );
 
-    const validation = validateRecommendation(recommendation, new Set(models.map((m) => m.id)));
+    const validation = validateRecommendation(
+      recommendation,
+      new Set(pricedModels.map((m) => m.id))
+    );
     if (!validation.valid) {
-      recommendation = repairRecommendationIds(recommendation, new Set(models.map((m) => m.id)));
+      recommendation = repairRecommendationIds(
+        recommendation,
+        new Set(pricedModels.map((m) => m.id))
+      );
     }
 
     const repairedValidation = validateRecommendation(
       recommendation,
-      new Set(models.map((m) => m.id))
+      new Set(pricedModels.map((m) => m.id))
     );
     if (!repairedValidation.valid) {
-      recommendation = generateFallbackRecommendation(task, models, constraints);
+      recommendation = generateFallbackRecommendation(task, pricedModels, constraints);
     }
   } catch (error) {
     if (error instanceof WhichModelError && error.exitCode !== ExitCode.LLM_FAILED) {
       throw error;
     }
 
-    recommendation = generateFallbackRecommendation(task, models, constraints);
+    recommendation = generateFallbackRecommendation(task, pricedModels, constraints);
   }
 
   const detectedModality = recommendation.taskAnalysis.detectedModality;
-  const catalogModelsInModality = models.filter(
+  const catalogModelsInModality = pricedModels.filter(
     (model) => model.modality === detectedModality
   ).length;
   recommendation = attachMissingModalityGuidance(
@@ -118,7 +133,7 @@ export async function recommend(options: RecommendOptions): Promise<RecommendRes
       completionTokens,
       recommendationLatencyMs: Date.now() - recommendationStartedAt,
       catalogSources,
-      catalogTotalModels: models.length,
+      catalogTotalModels: pricedModels.length,
       catalogModelsInModality,
       timestamp: new Date().toISOString(),
       version: APP_VERSION,

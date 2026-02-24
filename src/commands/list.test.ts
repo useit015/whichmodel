@@ -141,15 +141,16 @@ describe("filterAndSortModels", () => {
     expect(result).toHaveLength(2);
   });
 
-  it("excludes models with unusable pricing from ranked output", () => {
+  it("keeps unpriced models in output and sorts them after priced ones", () => {
     const models: ModelEntry[] = [
-      createTextModel({
-        id: "openrouter::bad-pricing",
-        pricing: { type: "text", promptPer1mTokens: -1, completionPer1mTokens: -1 },
-      }),
       createTextModel({
         id: "openrouter::valid",
         pricing: { type: "text", promptPer1mTokens: 0.2, completionPer1mTokens: 0.3 },
+      }),
+      createImageModel({
+        id: "replicate::owner/unpriced-image",
+        source: "replicate",
+        pricing: { type: "image" },
       }),
     ];
 
@@ -158,8 +159,10 @@ describe("filterAndSortModels", () => {
       limit: 50,
     });
 
-    expect(result).toHaveLength(1);
+    expect(result).toHaveLength(2);
     expect(result[0]?.id).toBe("openrouter::valid");
+    expect(result[1]?.id).toBe("replicate::owner/unpriced-image");
+    expect(result[1]?.pricing).toBe("N/A");
   });
 
   it("combines filters", () => {

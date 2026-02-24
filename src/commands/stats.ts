@@ -14,6 +14,7 @@ import { getModelPrimaryPrice, hasUsablePrice } from "../model-pricing.js";
 
 export interface ModalityStats {
   count: number;
+  pricedCount: number;
   priceRange: {
     min: number;
     max: number;
@@ -113,9 +114,6 @@ export function computeStats(
   let totalModels = 0;
 
   for (const model of models) {
-    if (!hasUsablePrice(model)) {
-      continue;
-    }
     totalModels += 1;
 
     sources.add(model.source);
@@ -124,16 +122,20 @@ export function computeStats(
     if (!byModality[modality]) {
       byModality[modality] = {
         count: 0,
+        pricedCount: 0,
         priceRange: { min: Number.POSITIVE_INFINITY, max: Number.NEGATIVE_INFINITY },
       };
     }
 
     byModality[modality].count++;
 
-    const price = getModelPrimaryPrice(model);
-    if (Number.isFinite(price)) {
-      byModality[modality].priceRange.min = Math.min(byModality[modality].priceRange.min, price);
-      byModality[modality].priceRange.max = Math.max(byModality[modality].priceRange.max, price);
+    if (hasUsablePrice(model)) {
+      byModality[modality].pricedCount++;
+      const price = getModelPrimaryPrice(model);
+      if (Number.isFinite(price)) {
+        byModality[modality].priceRange.min = Math.min(byModality[modality].priceRange.min, price);
+        byModality[modality].priceRange.max = Math.max(byModality[modality].priceRange.max, price);
+      }
     }
   }
 
@@ -256,12 +258,12 @@ export function formatStatsTerminal(stats: CatalogStats, noColor: boolean = fals
     const label = MODALITY_LABELS[modality];
     const modStats = stats.byModality[modality];
     let priceRange = "N/A";
-    if (modStats && modStats.count > 0) {
+    if (modStats && modStats.pricedCount > 0) {
       const unit = getPriceUnit(modality);
       const min = formatPrice(modStats.priceRange.min);
       const max = formatPrice(modStats.priceRange.max);
       if (min === "N/A" || max === "N/A") {
-        priceRange = "Varies";
+        priceRange = "N/A";
       } else if (min === max) {
         priceRange = `${min} ${unit}`;
       } else {
@@ -345,6 +347,7 @@ export function formatStatsJSON(stats: CatalogStats): object {
         modality,
         {
           count: modStats.count,
+          pricedCount: modStats.pricedCount,
           priceRange: {
             min: Number.isFinite(modStats.priceRange.min) ? modStats.priceRange.min : null,
             max: Number.isFinite(modStats.priceRange.max) ? modStats.priceRange.max : null,

@@ -311,4 +311,35 @@ describe("recommend", () => {
       "set REPLICATE_API_TOKEN"
     );
   });
+
+  it("fails early when all candidate models are unpriced", async () => {
+    const { recommend } = await loadRecommendWithMock(
+      new WhichModelError("LLM failed", ExitCode.LLM_FAILED, "retry")
+    );
+
+    await expect(
+      recommend({
+        task: "generate images",
+        models: [
+          {
+            id: "replicate::owner/unpriced-image",
+            source: "replicate",
+            name: "Unpriced Image",
+            modality: "image",
+            inputModalities: ["text"],
+            outputModalities: ["image"],
+            pricing: { type: "image" },
+            provider: "owner",
+            family: "other",
+          },
+        ],
+        apiKey: "sk-or-test",
+        recommenderModel: "deepseek/deepseek-v3.2",
+        catalogSources: ["replicate"],
+      })
+    ).rejects.toMatchObject({
+      exitCode: ExitCode.NO_MODELS_FOUND,
+      message: "No priced models found from configured sources.",
+    });
+  });
 });

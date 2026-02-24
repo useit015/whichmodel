@@ -9,7 +9,7 @@
 import chalk, { Chalk } from "chalk";
 import type { Modality, ModelEntry } from "../types.js";
 import { renderBox } from "../formatter/box.js";
-import { getModelPrimaryPrice, hasUsablePrice } from "../model-pricing.js";
+import { getModelPrimaryPrice } from "../model-pricing.js";
 
 export interface ListOptions {
   modality?: Modality;
@@ -80,7 +80,7 @@ function formatPricing(model: ModelEntry): string {
       if (pricing.perMegapixel) {
         return `$${pricing.perMegapixel.toFixed(3)} / MP`;
       }
-      return "Varies";
+      return "N/A";
     case "video":
       if (pricing.perSecond) {
         return `$${pricing.perSecond.toFixed(3)} / sec`;
@@ -88,7 +88,7 @@ function formatPricing(model: ModelEntry): string {
       if (pricing.perGeneration) {
         return `$${pricing.perGeneration.toFixed(2)} / gen`;
       }
-      return "Varies";
+      return "N/A";
     case "audio":
       if (pricing.perMinute) {
         return `$${pricing.perMinute.toFixed(3)} / min`;
@@ -99,7 +99,7 @@ function formatPricing(model: ModelEntry): string {
       if (pricing.perSecond) {
         return `$${pricing.perSecond.toFixed(4)} / sec`;
       }
-      return "Varies";
+      return "N/A";
     case "embedding":
       return `$${pricing.per1mTokens.toFixed(3)} / 1M`;
     default:
@@ -125,7 +125,7 @@ function formatContext(context?: number): string {
  * Filter and sort models based on options
  */
 export function filterAndSortModels(models: ModelEntry[], options: ListOptions): ModelListItem[] {
-  let filtered = models.filter((model) => hasUsablePrice(model));
+  let filtered = [...models];
 
   // Filter by modality
   if (options.modality) {
@@ -143,6 +143,14 @@ export function filterAndSortModels(models: ModelEntry[], options: ListOptions):
       case "price": {
         const priceA = getModelPrimaryPrice(a);
         const priceB = getModelPrimaryPrice(b);
+        const pricedA = Number.isFinite(priceA);
+        const pricedB = Number.isFinite(priceB);
+        if (pricedA !== pricedB) {
+          return pricedA ? -1 : 1;
+        }
+        if (!pricedA && !pricedB) {
+          return a.name.localeCompare(b.name);
+        }
         return priceA - priceB;
       }
       case "name":

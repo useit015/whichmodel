@@ -78,6 +78,28 @@ describe("computeStats", () => {
     expect(stats.byModality["image"]?.count).toBe(1);
   });
 
+  it("shows count for unpriced modalities while leaving price range empty", () => {
+    const config = {
+      apiKey: "sk-or-test",
+      recommenderModel: "test/model",
+      cacheTtl: 3600,
+    };
+
+    const models: ModelEntry[] = [
+      createImageModel({
+        id: "replicate::owner/unpriced-image",
+        source: "replicate",
+        pricing: { type: "image" },
+      }),
+    ];
+
+    const stats = computeStats(models, config);
+    expect(stats.totalModels).toBe(1);
+    expect(stats.byModality.image?.count).toBe(1);
+    expect(stats.byModality.image?.pricedCount).toBe(0);
+    expect(stats.byModality.image?.priceRange.min).toBe(Number.POSITIVE_INFINITY);
+  });
+
   it("calculates price ranges", () => {
     const config = {
       apiKey: "sk-or-test",
@@ -153,7 +175,7 @@ describe("computeStats", () => {
     expect(stats.queriedSources).toEqual(["openrouter", "fal", "replicate"]);
   });
 
-  it("skips unusable pricing entries in totals and ranges", () => {
+  it("counts all entries but computes price ranges from priced subset only", () => {
     const config = {
       apiKey: "sk-or-test",
       recommenderModel: "test/model",
@@ -173,8 +195,9 @@ describe("computeStats", () => {
 
     const stats = computeStats(models, config);
 
-    expect(stats.totalModels).toBe(1);
-    expect(stats.byModality.text?.count).toBe(1);
+    expect(stats.totalModels).toBe(2);
+    expect(stats.byModality.text?.count).toBe(2);
+    expect(stats.byModality.text?.pricedCount).toBe(1);
     expect(stats.byModality.text?.priceRange.min).toBe(1.25);
   });
 });
@@ -185,8 +208,8 @@ describe("formatStatsTerminal", () => {
       totalModels: 100,
       sources: ["openrouter"],
       byModality: {
-        text: { count: 90, priceRange: { min: 0.01, max: 10.0 } },
-        image: { count: 10, priceRange: { min: 0.02, max: 0.5 } },
+        text: { count: 90, pricedCount: 90, priceRange: { min: 0.01, max: 10.0 } },
+        image: { count: 10, pricedCount: 10, priceRange: { min: 0.02, max: 0.5 } },
       },
       configuredSources: ["openrouter"],
       missingSources: [{ name: "fal", envVar: "FAL_API_KEY", getUrl: "https://fal.ai" }],
@@ -224,7 +247,7 @@ describe("formatStatsTerminal", () => {
       queriedSources: ["openrouter", "fal", "replicate"],
       sources: ["openrouter", "fal"],
       byModality: {
-        text: { count: 10, priceRange: { min: 0.01, max: 1.0 } },
+        text: { count: 10, pricedCount: 10, priceRange: { min: 0.01, max: 1.0 } },
       },
       configuredSources: ["openrouter", "fal", "replicate"],
       missingSources: [],
