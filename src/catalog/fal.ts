@@ -1,9 +1,16 @@
-import type { CatalogSource } from "./source.js";
-import { classifyFalCategory, normalizeFalModel } from "./normalization.js";
-import { ExitCode, WhichModelError, type FalModel, type ModelEntry } from "../types.js";
+import type { CatalogSource } from './source.js';
+import { classifyFalCategory, normalizeFalModel } from './normalization.js';
+import { readCache, writeCache } from './cache.js';
+import { DEFAULT_CACHE_TTL_SECONDS } from '../config.js';
+import {
+  ExitCode,
+  WhichModelError,
+  type FalModel,
+  type ModelEntry
+} from '../types.js';
 
-const DEFAULT_MODELS_ENDPOINT = "https://api.fal.ai/v1/models";
-const DEFAULT_PRICING_ENDPOINT = "https://api.fal.ai/v1/models/pricing";
+const DEFAULT_MODELS_ENDPOINT = 'https://api.fal.ai/v1/models';
+const DEFAULT_PRICING_ENDPOINT = 'https://api.fal.ai/v1/models/pricing';
 const DEFAULT_TIMEOUT_MS = 10_000;
 const DEFAULT_RETRY_DELAYS_MS = [1_000, 2_000, 4_000];
 const DEFAULT_PAGE_SIZE = 200;
@@ -21,6 +28,8 @@ export interface FalCatalogOptions {
   retryDelaysMs?: number[];
   fetchImpl?: typeof fetch;
   sleep?: Sleep;
+  noCache?: boolean;
+  cacheTtl?: number;
 }
 
 interface FalPlatformModel {
@@ -48,7 +57,7 @@ interface FalPricingResponse {
 }
 
 export class FalCatalog implements CatalogSource {
-  readonly sourceId = "fal";
+  readonly sourceId = 'fal';
 
   private readonly apiKey?: string;
   private readonly modelsEndpoint: string;
@@ -57,6 +66,8 @@ export class FalCatalog implements CatalogSource {
   private readonly retryDelaysMs: number[];
   private readonly fetchImpl: typeof fetch;
   private readonly sleep: Sleep;
+  private readonly noCache: boolean;
+  private readonly cacheTtl: number;
 
   constructor(options: FalCatalogOptions = {}) {
     this.apiKey = options.apiKey;
@@ -66,15 +77,24 @@ export class FalCatalog implements CatalogSource {
     this.retryDelaysMs = options.retryDelaysMs ?? DEFAULT_RETRY_DELAYS_MS;
     this.fetchImpl = options.fetchImpl ?? fetch;
     this.sleep = options.sleep ?? wait;
+    this.noCache = options.noCache ?? false;
+    this.cacheTtl = options.cacheTtl ?? DEFAULT_CACHE_TTL_SECONDS;
   }
 
   async fetch(): Promise<ModelEntry[]> {
     if (!this.apiKey) {
       throw new WhichModelError(
-        "FAL_API_KEY is not set.",
+        'FAL_API_KEY is not set.',
         ExitCode.NO_API_KEY,
-        "Set FAL_API_KEY and retry."
+        'Set FAL_API_KEY and retry.'
       );
+    }
+
+    if (!this.noCache) {
+      const cached = await readCache(this.sourceId);
+      if (cached) {
+        return cached;
+      }
     }
 
     const platformModels = await this.fetchAllPlatformModels();
@@ -82,14 +102,20 @@ export class FalCatalog implements CatalogSource {
       return [];
     }
 
-    const priceMap = await this.fetchPricingMap(platformModels.map((model) => model.endpoint_id));
+    const priceMap = await this.fetchPricingMap(
+      platformModels.map(model => model.endpoint_id)
+    );
     const normalizedRaw: FalModel[] = platformModels
-      .map((model) => this.toFalModel(model, priceMap.get(model.endpoint_id)))
+      .map(model => this.toFalModel(model, priceMap.get(model.endpoint_id)))
       .filter((model): model is FalModel => model !== null);
 
-    return normalizedRaw
-      .map((model) => normalizeFalModel(model))
+    const models = normalizedRaw
+      .map(model => normalizeFalModel(model))
       .filter((model): model is ModelEntry => model !== null);
+
+    await writeCache(this.sourceId, models, this.cacheTtl);
+
+    return models;
   }
 
   private async fetchAllPlatformModels(): Promise<FalPlatformModel[]> {
@@ -99,9 +125,9 @@ export class FalCatalog implements CatalogSource {
 
     for (;;) {
       const params = new URLSearchParams();
-      params.set("limit", String(DEFAULT_PAGE_SIZE));
+      params.set('limit', String(DEFAULT_PAGE_SIZE));
       if (cursor) {
-        params.set("cursor", cursor);
+        params.set('cursor', cursor);
       }
 
       const payload = await this.requestJson<FalModelsListResponse>(
@@ -110,18 +136,23 @@ export class FalCatalog implements CatalogSource {
 
       if (!payload || !Array.isArray(payload.models)) {
         throw new WhichModelError(
-          "fal.ai catalog response is invalid.",
+          'fal.ai catalog response is invalid.',
           ExitCode.NETWORK_ERROR,
-          "Retry in a few minutes."
+          'Retry in a few minutes.'
         );
       }
 
       all.push(
-        ...payload.models.filter((model) => classifyFalCategory(model.metadata?.category ?? "") !== null)
+        ...payload.models.filter(
+          model => classifyFalCategory(model.metadata?.category ?? '') !== null
+        )
       );
       pagesFetched += 1;
 
-      if (pagesFetched >= MAX_MODEL_PAGES || all.length >= MAX_CANDIDATE_MODELS) {
+      if (
+        pagesFetched >= MAX_MODEL_PAGES ||
+        all.length >= MAX_CANDIDATE_MODELS
+      ) {
         break;
       }
 
@@ -141,7 +172,9 @@ export class FalCatalog implements CatalogSource {
     endpointIds: string[]
   ): Promise<Map<string, { amount: number; unit?: string }>> {
     const priceMap = new Map<string, { amount: number; unit?: string }>();
-    const sortedEndpointIds = [...endpointIds].sort((a, b) => a.localeCompare(b));
+    const sortedEndpointIds = [...endpointIds].sort((a, b) =>
+      a.localeCompare(b)
+    );
 
     for (const chunk of chunked(sortedEndpointIds, PRICING_CHUNK_SIZE)) {
       await this.fetchPricingForChunk(chunk, priceMap);
@@ -155,13 +188,13 @@ export class FalCatalog implements CatalogSource {
     pricing: { amount: number; unit?: string } | undefined
   ): FalModel | null {
     const category = model.metadata?.category;
-    if (!category || typeof category !== "string") {
+    if (!category || typeof category !== 'string') {
       return null;
     }
 
     if (
       !pricing ||
-      typeof pricing.amount !== "number" ||
+      typeof pricing.amount !== 'number' ||
       !Number.isFinite(pricing.amount) ||
       pricing.amount <= 0
     ) {
@@ -174,34 +207,34 @@ export class FalCatalog implements CatalogSource {
       category,
       pricing: {
         type: this.falUnitToPricingType(category, pricing.unit),
-        amount: pricing.amount,
-      },
+        amount: pricing.amount
+      }
     };
   }
 
   private falUnitToPricingType(category: string, unit?: string): string {
-    const normalizedUnit = unit?.toLowerCase() ?? "";
-    if (normalizedUnit.includes("character")) {
-      return "per_character";
+    const normalizedUnit = unit?.toLowerCase() ?? '';
+    if (normalizedUnit.includes('character')) {
+      return 'per_character';
     }
-    if (normalizedUnit.includes("minute")) {
-      return "per_minute";
+    if (normalizedUnit.includes('minute')) {
+      return 'per_minute';
     }
-    if (normalizedUnit.includes("second")) {
-      return "per_second";
+    if (normalizedUnit.includes('second')) {
+      return 'per_second';
     }
-    if (normalizedUnit.includes("image")) {
-      return "per_image";
+    if (normalizedUnit.includes('image')) {
+      return 'per_image';
     }
 
     const normalized = category.toLowerCase();
-    if (normalized.includes("image")) {
-      return "per_image";
+    if (normalized.includes('image')) {
+      return 'per_image';
     }
-    if (normalized.includes("video")) {
-      return "per_generation";
+    if (normalized.includes('video')) {
+      return 'per_generation';
     }
-    return "per_generation";
+    return 'per_generation';
   }
 
   private async requestJson<T>(url: string): Promise<T> {
@@ -213,7 +246,10 @@ export class FalCatalog implements CatalogSource {
         const response = await this.fetchWithTimeout(url);
 
         if (!response.ok) {
-          if (this.shouldRetryStatus(response.status) && attempt < maxAttempts - 1) {
+          if (
+            this.shouldRetryStatus(response.status) &&
+            attempt < maxAttempts - 1
+          ) {
             await this.sleep(this.retryDelayForAttempt(attempt));
             continue;
           }
@@ -243,12 +279,12 @@ export class FalCatalog implements CatalogSource {
 
     try {
       return await this.fetchImpl(url, {
-        method: "GET",
+        method: 'GET',
         headers: {
           Authorization: `Key ${this.apiKey}`,
-          "Content-Type": "application/json",
+          'Content-Type': 'application/json'
         },
-        signal: controller.signal,
+        signal: controller.signal
       });
     } finally {
       clearTimeout(timeoutId);
@@ -264,9 +300,9 @@ export class FalCatalog implements CatalogSource {
     }
 
     const params = new URLSearchParams();
-    params.set("limit", String(DEFAULT_PAGE_SIZE));
+    params.set('limit', String(DEFAULT_PAGE_SIZE));
     for (const endpointId of endpointIds) {
-      params.append("endpoint_id", endpointId);
+      params.append('endpoint_id', endpointId);
     }
 
     try {
@@ -275,22 +311,25 @@ export class FalCatalog implements CatalogSource {
       );
       if (!payload || !Array.isArray(payload.prices)) {
         throw new WhichModelError(
-          "fal.ai pricing response is invalid.",
+          'fal.ai pricing response is invalid.',
           ExitCode.NETWORK_ERROR,
-          "Retry in a few minutes."
+          'Retry in a few minutes.'
         );
       }
 
       for (const price of payload.prices) {
-        if (!price || typeof price.endpoint_id !== "string") {
+        if (!price || typeof price.endpoint_id !== 'string') {
           continue;
         }
-        if (typeof price.unit_price !== "number" || !Number.isFinite(price.unit_price)) {
+        if (
+          typeof price.unit_price !== 'number' ||
+          !Number.isFinite(price.unit_price)
+        ) {
           continue;
         }
         priceMap.set(price.endpoint_id, {
           amount: price.unit_price,
-          unit: price.unit,
+          unit: price.unit
         });
       }
     } catch (error) {
@@ -322,7 +361,9 @@ export class FalCatalog implements CatalogSource {
   }
 
   private retryDelayForAttempt(attempt: number): number {
-    return this.retryDelaysMs[Math.min(attempt, this.retryDelaysMs.length - 1)] ?? 0;
+    return (
+      this.retryDelaysMs[Math.min(attempt, this.retryDelaysMs.length - 1)] ?? 0
+    );
   }
 
   private shouldRetryStatus(status: number): boolean {
@@ -344,9 +385,9 @@ export class FalCatalog implements CatalogSource {
   private buildHttpError(status: number): WhichModelError {
     if (status === 401 || status === 403) {
       return new WhichModelError(
-        "Invalid or unauthorized fal.ai API key.",
+        'Invalid or unauthorized fal.ai API key.',
         ExitCode.NO_API_KEY,
-        "Check FAL_API_KEY at https://fal.ai/dashboard"
+        'Check FAL_API_KEY at https://fal.ai/dashboard'
       );
     }
 
@@ -354,14 +395,14 @@ export class FalCatalog implements CatalogSource {
       return new WhichModelError(
         `Unable to fetch fal.ai model catalog (status ${status}).`,
         ExitCode.NETWORK_ERROR,
-        "Retry in a few minutes."
+        'Retry in a few minutes.'
       );
     }
 
     return new WhichModelError(
       `Unable to fetch fal.ai model catalog (status ${status}).`,
       ExitCode.NETWORK_ERROR,
-      "Check your fal.ai configuration and retry."
+      'Check your fal.ai configuration and retry.'
     );
   }
 
@@ -372,27 +413,28 @@ export class FalCatalog implements CatalogSource {
 
     if (isAbortError(error)) {
       return new WhichModelError(
-        "Timeout fetching model catalog from fal.ai.",
+        'Timeout fetching model catalog from fal.ai.',
         ExitCode.NETWORK_ERROR,
-        "Retry in a few minutes."
+        'Retry in a few minutes.'
       );
     }
 
-    const detail = error instanceof Error ? error.message : "Unknown network failure.";
+    const detail =
+      error instanceof Error ? error.message : 'Unknown network failure.';
     return new WhichModelError(
       `Failed to fetch model catalog from fal.ai: ${detail}`,
       ExitCode.NETWORK_ERROR,
-      "Check your internet connection and retry."
+      'Check your internet connection and retry.'
     );
   }
 }
 
 function isAbortError(error: unknown): boolean {
   return (
-    typeof error === "object" &&
+    typeof error === 'object' &&
     error !== null &&
-    "name" in error &&
-    (error as { name?: string }).name === "AbortError"
+    'name' in error &&
+    (error as { name?: string }).name === 'AbortError'
   );
 }
 
@@ -401,7 +443,7 @@ async function wait(ms: number): Promise<void> {
     return;
   }
 
-  await new Promise<void>((resolve) => {
+  await new Promise<void>(resolve => {
     setTimeout(resolve, ms);
   });
 }

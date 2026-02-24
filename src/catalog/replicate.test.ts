@@ -99,6 +99,7 @@ describe("ReplicateCatalog", () => {
       fetchImpl,
       retryDelaysMs: [0],
       sleep: async () => {},
+      noCache: true,
     });
 
     const models = await catalog.fetch();
@@ -126,6 +127,7 @@ describe("ReplicateCatalog", () => {
       fetchImpl,
       retryDelaysMs: [0],
       sleep: async () => {},
+      noCache: true,
     });
 
     await expect(catalog.fetch()).rejects.toMatchObject({
@@ -141,6 +143,7 @@ describe("ReplicateCatalog", () => {
       fetchImpl,
       retryDelaysMs: [0, 0],
       sleep: async () => {},
+      noCache: true,
     });
 
     await expect(catalog.fetch()).rejects.toMatchObject({
@@ -157,6 +160,7 @@ describe("ReplicateCatalog", () => {
       fetchImpl,
       retryDelaysMs: [0, 0],
       sleep: async () => {},
+      noCache: true,
     });
 
     await expect(catalog.fetch()).rejects.toMatchObject({

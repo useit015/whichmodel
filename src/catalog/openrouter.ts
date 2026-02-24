@@ -1,13 +1,15 @@
-import type { CatalogSource } from "./source.js";
-import { normalizeOpenRouterModel } from "./normalization.js";
+import type { CatalogSource } from './source.js';
+import { normalizeOpenRouterModel } from './normalization.js';
+import { readCache, writeCache } from './cache.js';
+import { DEFAULT_CACHE_TTL_SECONDS } from '../config.js';
 import {
   ExitCode,
   WhichModelError,
   type ModelEntry,
-  type OpenRouterResponse,
-} from "../types.js";
+  type OpenRouterResponse
+} from '../types.js';
 
-const DEFAULT_ENDPOINT = "https://openrouter.ai/api/v1/models";
+const DEFAULT_ENDPOINT = 'https://openrouter.ai/api/v1/models';
 const DEFAULT_TIMEOUT_MS = 10_000;
 const DEFAULT_RETRY_DELAYS_MS = [1_000, 2_000, 4_000];
 
@@ -19,16 +21,20 @@ export interface OpenRouterCatalogOptions {
   retryDelaysMs?: number[];
   fetchImpl?: typeof fetch;
   sleep?: Sleep;
+  noCache?: boolean;
+  cacheTtl?: number;
 }
 
 export class OpenRouterCatalog implements CatalogSource {
-  readonly sourceId = "openrouter";
+  readonly sourceId = 'openrouter';
 
   private readonly endpoint: string;
   private readonly timeoutMs: number;
   private readonly retryDelaysMs: number[];
   private readonly fetchImpl: typeof fetch;
   private readonly sleep: Sleep;
+  private readonly noCache: boolean;
+  private readonly cacheTtl: number;
 
   constructor(options: OpenRouterCatalogOptions = {}) {
     this.endpoint = options.endpoint ?? DEFAULT_ENDPOINT;
@@ -36,9 +42,18 @@ export class OpenRouterCatalog implements CatalogSource {
     this.retryDelaysMs = options.retryDelaysMs ?? DEFAULT_RETRY_DELAYS_MS;
     this.fetchImpl = options.fetchImpl ?? fetch;
     this.sleep = options.sleep ?? wait;
+    this.noCache = options.noCache ?? false;
+    this.cacheTtl = options.cacheTtl ?? DEFAULT_CACHE_TTL_SECONDS;
   }
 
   async fetch(): Promise<ModelEntry[]> {
+    if (!this.noCache) {
+      const cached = await readCache(this.sourceId);
+      if (cached) {
+        return cached;
+      }
+    }
+
     const maxAttempts = this.retryDelaysMs.length + 1;
     let lastError: unknown;
 
@@ -47,7 +62,10 @@ export class OpenRouterCatalog implements CatalogSource {
         const response = await this.fetchWithTimeout();
 
         if (!response.ok) {
-          if (this.shouldRetryStatus(response.status) && attempt < maxAttempts - 1) {
+          if (
+            this.shouldRetryStatus(response.status) &&
+            attempt < maxAttempts - 1
+          ) {
             await this.sleep(this.retryDelayForAttempt(attempt));
             continue;
           }
@@ -58,15 +76,19 @@ export class OpenRouterCatalog implements CatalogSource {
         const payload = (await response.json()) as OpenRouterResponse;
         if (!payload || !Array.isArray(payload.data)) {
           throw new WhichModelError(
-            "OpenRouter catalog response is invalid.",
+            'OpenRouter catalog response is invalid.',
             ExitCode.NETWORK_ERROR,
-            "Try again shortly. If this persists, check https://status.openrouter.ai."
+            'Try again shortly. If this persists, check https://status.openrouter.ai.'
           );
         }
 
-        return payload.data
-          .map((model) => normalizeOpenRouterModel(model))
+        const models = payload.data
+          .map(model => normalizeOpenRouterModel(model))
           .filter((model): model is ModelEntry => model !== null);
+
+        await writeCache(this.sourceId, models, this.cacheTtl);
+
+        return models;
       } catch (error) {
         lastError = error;
 
@@ -88,9 +110,9 @@ export class OpenRouterCatalog implements CatalogSource {
 
     try {
       return await this.fetchImpl(this.endpoint, {
-        method: "GET",
-        headers: { Accept: "application/json" },
-        signal: controller.signal,
+        method: 'GET',
+        headers: { Accept: 'application/json' },
+        signal: controller.signal
       });
     } finally {
       clearTimeout(timeoutId);
@@ -98,7 +120,9 @@ export class OpenRouterCatalog implements CatalogSource {
   }
 
   private retryDelayForAttempt(attempt: number): number {
-    return this.retryDelaysMs[Math.min(attempt, this.retryDelaysMs.length - 1)] ?? 0;
+    return (
+      this.retryDelaysMs[Math.min(attempt, this.retryDelaysMs.length - 1)] ?? 0
+    );
   }
 
   private shouldRetryStatus(status: number): boolean {
@@ -123,24 +147,24 @@ export class OpenRouterCatalog implements CatalogSource {
         `Unable to fetch model catalog (OpenRouter returned ${status}).`,
         ExitCode.NETWORK_ERROR,
         [
-          "OpenRouter may be experiencing temporary issues.",
-          "Retry in a few minutes and check https://status.openrouter.ai.",
-        ].join("\n")
+          'OpenRouter may be experiencing temporary issues.',
+          'Retry in a few minutes and check https://status.openrouter.ai.'
+        ].join('\n')
       );
     }
 
     if (status === 429) {
       return new WhichModelError(
-        "OpenRouter rate limit exceeded while fetching the model catalog.",
+        'OpenRouter rate limit exceeded while fetching the model catalog.',
         ExitCode.NETWORK_ERROR,
-        "Wait a minute and retry."
+        'Wait a minute and retry.'
       );
     }
 
     return new WhichModelError(
       `Unable to fetch model catalog (OpenRouter returned ${status}).`,
       ExitCode.NETWORK_ERROR,
-      "Check your network connection and retry."
+      'Check your network connection and retry.'
     );
   }
 
@@ -151,39 +175,39 @@ export class OpenRouterCatalog implements CatalogSource {
 
     if (isAbortError(error)) {
       return new WhichModelError(
-        "Timeout fetching model catalog from OpenRouter.",
+        'Timeout fetching model catalog from OpenRouter.',
         ExitCode.NETWORK_ERROR,
         [
-          "This can be caused by a slow network or temporary API issues.",
-          "Retry in a few minutes and check https://status.openrouter.ai.",
-        ].join("\n")
+          'This can be caused by a slow network or temporary API issues.',
+          'Retry in a few minutes and check https://status.openrouter.ai.'
+        ].join('\n')
       );
     }
 
     const detail =
-      error instanceof Error ? error.message : "Unknown network failure.";
+      error instanceof Error ? error.message : 'Unknown network failure.';
 
     return new WhichModelError(
       `Failed to fetch model catalog from OpenRouter: ${detail}`,
       ExitCode.NETWORK_ERROR,
-      "Check your internet connection and retry. Status page: https://status.openrouter.ai"
+      'Check your internet connection and retry. Status page: https://status.openrouter.ai'
     );
   }
 }
 
 function isAbortError(error: unknown): boolean {
   return (
-    typeof error === "object" &&
+    typeof error === 'object' &&
     error !== null &&
-    "name" in error &&
-    (error as { name?: string }).name === "AbortError"
+    'name' in error &&
+    (error as { name?: string }).name === 'AbortError'
   );
 }
 
 async function wait(ms: number): Promise<void> {
   if (ms <= 0) return;
 
-  await new Promise<void>((resolve) => {
+  await new Promise<void>(resolve => {
     setTimeout(resolve, ms);
   });
 }

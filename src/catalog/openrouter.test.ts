@@ -27,6 +27,7 @@ describe("OpenRouterCatalog", () => {
       fetchImpl,
       retryDelaysMs: [0],
       sleep: async () => {},
+      noCache: true,
     });
 
     const models = await catalog.fetch();
@@ -55,7 +56,12 @@ describe("OpenRouterCatalog", () => {
     };
 
     const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(mockResponse(200, payload));
-    const catalog = new OpenRouterCatalog({ fetchImpl, retryDelaysMs: [0], sleep: async () => {} });
+    const catalog = new OpenRouterCatalog({
+      fetchImpl,
+      retryDelaysMs: [0],
+      sleep: async () => {},
+      noCache: true,
+    });
 
     const models = await catalog.fetch();
 
@@ -76,7 +82,12 @@ describe("OpenRouterCatalog", () => {
     };
 
     const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(mockResponse(200, payload));
-    const catalog = new OpenRouterCatalog({ fetchImpl, retryDelaysMs: [0], sleep: async () => {} });
+    const catalog = new OpenRouterCatalog({
+      fetchImpl,
+      retryDelaysMs: [0],
+      sleep: async () => {},
+      noCache: true,
+    });
 
     const models = await catalog.fetch();
     expect(models).toHaveLength(1);
@@ -94,6 +105,7 @@ describe("OpenRouterCatalog", () => {
       fetchImpl,
       retryDelaysMs: [0],
       sleep: async () => {},
+      noCache: true,
     });
 
     const models = await catalog.fetch();
@@ -114,6 +126,7 @@ describe("OpenRouterCatalog", () => {
       fetchImpl,
       retryDelaysMs: [0, 0],
       sleep: async () => {},
+      noCache: true,
     });
 
     await expect(catalog.fetch()).rejects.toMatchObject({
@@ -130,6 +143,7 @@ describe("OpenRouterCatalog", () => {
       fetchImpl,
       retryDelaysMs: [0, 0],
       sleep: async () => {},
+      noCache: true,
     });
 
     await expect(catalog.fetch()).rejects.toMatchObject({

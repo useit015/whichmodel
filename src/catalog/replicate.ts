@@ -1,14 +1,16 @@
-import type { CatalogSource } from "./source.js";
-import { normalizeReplicateModel } from "./normalization.js";
+import type { CatalogSource } from './source.js';
+import { normalizeReplicateModel } from './normalization.js';
+import { readCache, writeCache } from './cache.js';
+import { DEFAULT_CACHE_TTL_SECONDS } from '../config.js';
 import {
   ExitCode,
   WhichModelError,
   type ModelEntry,
   type ReplicateModel,
-  type ReplicateModelsResponse,
-} from "../types.js";
+  type ReplicateModelsResponse
+} from '../types.js';
 
-const DEFAULT_ENDPOINT = "https://api.replicate.com/v1/models";
+const DEFAULT_ENDPOINT = 'https://api.replicate.com/v1/models';
 const DEFAULT_TIMEOUT_MS = 10_000;
 const DEFAULT_RETRY_DELAYS_MS = [1_000, 2_000, 4_000];
 const MAX_MODEL_PAGES = 8;
@@ -23,10 +25,12 @@ export interface ReplicateCatalogOptions {
   retryDelaysMs?: number[];
   fetchImpl?: typeof fetch;
   sleep?: Sleep;
+  noCache?: boolean;
+  cacheTtl?: number;
 }
 
 export class ReplicateCatalog implements CatalogSource {
-  readonly sourceId = "replicate";
+  readonly sourceId = 'replicate';
 
   private readonly apiToken?: string;
   private readonly endpoint: string;
@@ -34,6 +38,8 @@ export class ReplicateCatalog implements CatalogSource {
   private readonly retryDelaysMs: number[];
   private readonly fetchImpl: typeof fetch;
   private readonly sleep: Sleep;
+  private readonly noCache: boolean;
+  private readonly cacheTtl: number;
 
   constructor(options: ReplicateCatalogOptions = {}) {
     this.apiToken = options.apiToken;
@@ -42,21 +48,34 @@ export class ReplicateCatalog implements CatalogSource {
     this.retryDelaysMs = options.retryDelaysMs ?? DEFAULT_RETRY_DELAYS_MS;
     this.fetchImpl = options.fetchImpl ?? fetch;
     this.sleep = options.sleep ?? wait;
+    this.noCache = options.noCache ?? false;
+    this.cacheTtl = options.cacheTtl ?? DEFAULT_CACHE_TTL_SECONDS;
   }
 
   async fetch(): Promise<ModelEntry[]> {
     if (!this.apiToken) {
       throw new WhichModelError(
-        "REPLICATE_API_TOKEN is not set.",
+        'REPLICATE_API_TOKEN is not set.',
         ExitCode.NO_API_KEY,
-        "Set REPLICATE_API_TOKEN and retry."
+        'Set REPLICATE_API_TOKEN and retry.'
       );
     }
 
+    if (!this.noCache) {
+      const cached = await readCache(this.sourceId);
+      if (cached) {
+        return cached;
+      }
+    }
+
     const rawModels = await this.fetchAllModels();
-    return rawModels
-      .map((model) => normalizeReplicateModel(model))
+    const models = rawModels
+      .map(model => normalizeReplicateModel(model))
       .filter((model): model is ModelEntry => model !== null);
+
+    await writeCache(this.sourceId, models, this.cacheTtl);
+
+    return models;
   }
 
   private async fetchAllModels(): Promise<ReplicateModel[]> {
@@ -64,18 +83,22 @@ export class ReplicateCatalog implements CatalogSource {
     let nextUrl: string | null = this.endpoint;
     let pagesFetched = 0;
 
-    while (nextUrl && pagesFetched < MAX_MODEL_PAGES && all.length < MAX_CANDIDATE_MODELS) {
+    while (
+      nextUrl &&
+      pagesFetched < MAX_MODEL_PAGES &&
+      all.length < MAX_CANDIDATE_MODELS
+    ) {
       const payload = await this.requestJson<ReplicateModelsResponse>(nextUrl);
       if (!payload || !Array.isArray(payload.results)) {
         throw new WhichModelError(
-          "Replicate catalog response is invalid.",
+          'Replicate catalog response is invalid.',
           ExitCode.NETWORK_ERROR,
-          "Retry in a few minutes."
+          'Retry in a few minutes.'
         );
       }
 
       for (const model of payload.results) {
-        if (model?.visibility === "private") {
+        if (model?.visibility === 'private') {
           continue;
         }
         all.push(model);
@@ -90,8 +113,8 @@ export class ReplicateCatalog implements CatalogSource {
 
     return [...all]
       .sort((a, b) => {
-        const runA = typeof a.run_count === "number" ? a.run_count : -1;
-        const runB = typeof b.run_count === "number" ? b.run_count : -1;
+        const runA = typeof a.run_count === 'number' ? a.run_count : -1;
+        const runB = typeof b.run_count === 'number' ? b.run_count : -1;
         if (runA !== runB) {
           return runB - runA;
         }
@@ -102,8 +125,8 @@ export class ReplicateCatalog implements CatalogSource {
   }
 
   private modelKey(model: ReplicateModel): string {
-    const owner = typeof model.owner === "string" ? model.owner : "";
-    const name = typeof model.name === "string" ? model.name : "";
+    const owner = typeof model.owner === 'string' ? model.owner : '';
+    const name = typeof model.name === 'string' ? model.name : '';
     return `${owner}/${name}`;
   }
 
@@ -131,7 +154,10 @@ export class ReplicateCatalog implements CatalogSource {
       try {
         const response = await this.fetchWithTimeout(url);
         if (!response.ok) {
-          if (this.shouldRetryStatus(response.status) && attempt < maxAttempts - 1) {
+          if (
+            this.shouldRetryStatus(response.status) &&
+            attempt < maxAttempts - 1
+          ) {
             await this.sleep(this.retryDelayForAttempt(attempt));
             continue;
           }
@@ -161,12 +187,12 @@ export class ReplicateCatalog implements CatalogSource {
 
     try {
       return await this.fetchImpl(url, {
-        method: "GET",
+        method: 'GET',
         headers: {
           Authorization: `Bearer ${this.apiToken}`,
-          Accept: "application/json",
+          Accept: 'application/json'
         },
-        signal: controller.signal,
+        signal: controller.signal
       });
     } finally {
       clearTimeout(timeoutId);
@@ -174,7 +200,9 @@ export class ReplicateCatalog implements CatalogSource {
   }
 
   private retryDelayForAttempt(attempt: number): number {
-    return this.retryDelaysMs[Math.min(attempt, this.retryDelaysMs.length - 1)] ?? 0;
+    return (
+      this.retryDelaysMs[Math.min(attempt, this.retryDelaysMs.length - 1)] ?? 0
+    );
   }
 
   private shouldRetryStatus(status: number): boolean {
@@ -196,17 +224,17 @@ export class ReplicateCatalog implements CatalogSource {
   private buildHttpError(status: number): WhichModelError {
     if (status === 401 || status === 403) {
       return new WhichModelError(
-        "Invalid or unauthorized Replicate API token.",
+        'Invalid or unauthorized Replicate API token.',
         ExitCode.NO_API_KEY,
-        "Check REPLICATE_API_TOKEN at https://replicate.com/account/api-tokens"
+        'Check REPLICATE_API_TOKEN at https://replicate.com/account/api-tokens'
       );
     }
 
     if (status === 429) {
       return new WhichModelError(
-        "Replicate rate limit exceeded while fetching the model catalog.",
+        'Replicate rate limit exceeded while fetching the model catalog.',
         ExitCode.NETWORK_ERROR,
-        "Wait a minute and retry."
+        'Wait a minute and retry.'
       );
     }
 
@@ -214,14 +242,14 @@ export class ReplicateCatalog implements CatalogSource {
       return new WhichModelError(
         `Unable to fetch Replicate model catalog (status ${status}).`,
         ExitCode.NETWORK_ERROR,
-        "Retry in a few minutes."
+        'Retry in a few minutes.'
       );
     }
 
     return new WhichModelError(
       `Unable to fetch Replicate model catalog (status ${status}).`,
       ExitCode.NETWORK_ERROR,
-      "Check your network connection and retry."
+      'Check your network connection and retry.'
     );
   }
 
@@ -232,33 +260,34 @@ export class ReplicateCatalog implements CatalogSource {
 
     if (isAbortError(error)) {
       return new WhichModelError(
-        "Timeout fetching model catalog from Replicate.",
+        'Timeout fetching model catalog from Replicate.',
         ExitCode.NETWORK_ERROR,
-        "Retry in a few minutes."
+        'Retry in a few minutes.'
       );
     }
 
-    const detail = error instanceof Error ? error.message : "Unknown network failure.";
+    const detail =
+      error instanceof Error ? error.message : 'Unknown network failure.';
     return new WhichModelError(
       `Failed to fetch model catalog from Replicate: ${detail}`,
       ExitCode.NETWORK_ERROR,
-      "Check your internet connection and retry."
+      'Check your internet connection and retry.'
     );
   }
 }
 
 function isAbortError(error: unknown): boolean {
   return (
-    typeof error === "object" &&
+    typeof error === 'object' &&
     error !== null &&
-    "name" in error &&
-    (error as { name?: string }).name === "AbortError"
+    'name' in error &&
+    (error as { name?: string }).name === 'AbortError'
   );
 }
 
 async function wait(ms: number): Promise<void> {
   if (ms <= 0) return;
-  await new Promise<void>((resolve) => {
+  await new Promise<void>(resolve => {
     setTimeout(resolve, ms);
   });
 }

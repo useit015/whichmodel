@@ -80,6 +80,7 @@ describe("FalCatalog", () => {
       fetchImpl,
       retryDelaysMs: [0],
       sleep: async () => {},
+      noCache: true,
     });
 
     const models = await catalog.fetch();
@@ -149,7 +150,12 @@ describe("FalCatalog", () => {
       return mockResponse(404, {});
     });
 
-    const catalog = new FalCatalog({ apiKey: "fal_test", fetchImpl, retryDelaysMs: [0] });
+    const catalog = new FalCatalog({
+      apiKey: "fal_test",
+      fetchImpl,
+      retryDelaysMs: [0],
+      noCache: true,
+    });
     const models = await catalog.fetch();
 
     expect(models).toHaveLength(2);
@@ -212,7 +218,12 @@ describe("FalCatalog", () => {
       return mockResponse(404, {});
     });
 
-    const catalog = new FalCatalog({ apiKey: "fal_test", fetchImpl, retryDelaysMs: [0] });
+    const catalog = new FalCatalog({
+      apiKey: "fal_test",
+      fetchImpl,
+      retryDelaysMs: [0],
+      noCache: true,
+    });
     const models = await catalog.fetch();
 
     expect(models).toHaveLength(2);
@@ -235,6 +246,7 @@ describe("FalCatalog", () => {
       fetchImpl,
       retryDelaysMs: [0],
       sleep: async () => {},
+      noCache: true,
     });
 
     await expect(catalog.fetch()).rejects.toMatchObject({
@@ -249,6 +261,7 @@ describe("FalCatalog", () => {
       fetchImpl,
       retryDelaysMs: [0, 0],
       sleep: async () => {},
+      noCache: true,
     });
 
     await expect(catalog.fetch()).rejects.toMatchObject({
@@ -264,6 +277,7 @@ describe("FalCatalog", () => {
       fetchImpl,
       retryDelaysMs: [0, 0],
       sleep: async () => {},
+      noCache: true,
     });
 
     await expect(catalog.fetch()).rejects.toMatchObject({
@@ -301,6 +315,7 @@ describe("FalCatalog", () => {
       fetchImpl,
       retryDelaysMs: [0, 0],
       sleep: async () => {},
+      noCache: true,
     });
 
     const models = await catalog.fetch();
