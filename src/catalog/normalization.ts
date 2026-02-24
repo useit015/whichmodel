@@ -201,7 +201,7 @@ export function normalizeReplicateModel(raw: ReplicateModel): ModelEntry | null 
   };
 }
 
-function normalizeModalities(values?: string[]): string[] {
+function normalizeModalities(values?: string[] | null): string[] {
   const source = values && values.length > 0 ? values : DEFAULT_MODALITIES;
   const normalized = source
     .map((value) => value.trim().toLowerCase())

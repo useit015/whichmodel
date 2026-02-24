@@ -18,25 +18,28 @@ export const openRouterModelSchema = z
     }),
     architecture: z
       .object({
-        modality: z.string().optional(),
-        tokenizer: z.string().optional(),
-        instruct_type: z.string().optional(),
-        input_modalities: z.array(z.string()).optional(),
-        output_modalities: z.array(z.string()).optional(),
+        modality: z.string().nullable().optional(),
+        tokenizer: z.string().nullable().optional(),
+        instruct_type: z.string().nullable().optional(),
+        input_modalities: z.array(z.string()).nullable().optional(),
+        output_modalities: z.array(z.string()).nullable().optional(),
       })
+      .nullable()
       .optional(),
     top_provider: z
       .object({
-        context_length: z.number().int().optional(),
-        max_completion_tokens: z.number().int().optional(),
-        is_moderated: z.boolean().optional(),
+        context_length: z.number().int().nullable().optional(),
+        max_completion_tokens: z.number().int().nullable().optional(),
+        is_moderated: z.boolean().nullable().optional(),
       })
+      .nullable()
       .optional(),
     per_request_limits: z
       .object({
-        prompt_tokens: z.number().int().optional(),
-        completion_tokens: z.number().int().optional(),
+        prompt_tokens: z.number().int().nullable().optional(),
+        completion_tokens: z.number().int().nullable().optional(),
       })
+      .nullable()
       .optional(),
   })
   .passthrough();

@@ -26,6 +26,33 @@ describe("provider-schemas", () => {
     expect(result.isOk()).toBe(true);
   });
 
+  it("parses openrouter payload when per_request_limits is null", () => {
+    const result = parseOpenRouterResponse({
+      data: [
+        {
+          id: "google/gemini-3.1-pro-preview",
+          name: "Google: Gemini 3.1 Pro Preview",
+          context_length: 1_048_576,
+          pricing: {
+            prompt: "0.000002",
+            completion: "0.000012",
+          },
+          architecture: {
+            modality: "text+image->text",
+            instruct_type: null,
+          },
+          top_provider: {
+            context_length: 1_048_576,
+            max_completion_tokens: null,
+          },
+          per_request_limits: null,
+        },
+      ],
+    });
+
+    expect(result.isOk()).toBe(true);
+  });
+
   it("rejects malformed openrouter payload", () => {
     const result = parseOpenRouterResponse({ data: [{ id: "x" }] });
 

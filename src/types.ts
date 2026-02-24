@@ -542,21 +542,21 @@ export interface OpenRouterModel {
     request?: string;
   };
   architecture?: {
-    modality?: string;
-    tokenizer?: string;
-    instruct_type?: string;
-    input_modalities?: string[];
-    output_modalities?: string[];
-  };
+    modality?: string | null;
+    tokenizer?: string | null;
+    instruct_type?: string | null;
+    input_modalities?: string[] | null;
+    output_modalities?: string[] | null;
+  } | null;
   top_provider?: {
-    context_length?: number;
-    max_completion_tokens?: number;
-    is_moderated?: boolean;
-  };
+    context_length?: number | null;
+    max_completion_tokens?: number | null;
+    is_moderated?: boolean | null;
+  } | null;
   per_request_limits?: {
-    prompt_tokens?: number;
-    completion_tokens?: number;
-  };
+    prompt_tokens?: number | null;
+    completion_tokens?: number | null;
+  } | null;
 }
 
 /**
