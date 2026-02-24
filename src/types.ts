@@ -338,9 +338,6 @@ export interface Config {
   /** Together AI API key (optional) */
   togetherApiKey?: string;
 
-  /** Enable Replicate model-page pricing enrichment (disabled by default) */
-  replicatePagePricing?: boolean;
-
   /** Freshness TTL for Replicate page-pricing entries in seconds */
   replicatePriceTtlSeconds?: number;
 

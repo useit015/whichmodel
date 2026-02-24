@@ -34,7 +34,6 @@ This is required for:
 
 - `WHICHMODEL_MODEL` (default: `deepseek/deepseek-v3.2`)
 - `WHICHMODEL_CACHE_TTL` (default: `3600`)
-- `WHICHMODEL_REPLICATE_PAGE_PRICING` (default: `false`)
 - `WHICHMODEL_REPLICATE_PRICE_TTL_SECONDS` (default: `86400`)
 - `WHICHMODEL_REPLICATE_PRICE_MAX_STALE_SECONDS` (default: `604800`)
 - `WHICHMODEL_REPLICATE_PRICE_FETCH_BUDGET` (default: `40`)
@@ -71,7 +70,7 @@ Cache files:
 - `openrouter-catalog.json`
 - `fal-catalog.json`
 - `replicate-catalog.json`
-- `replicate-pricing.json` (page-pricing enrichment cache, only when enabled)
+- `replicate-pricing.json` (page-pricing enrichment cache)
 
 ## Runtime Notes
 

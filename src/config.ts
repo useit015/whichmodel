@@ -11,7 +11,6 @@ interface ConfigFile {
   elevenLabsApiKey?: string;
   togetherApiKey?: string;
   cacheTtl?: number;
-  replicatePagePricing?: boolean;
   replicatePriceTtlSeconds?: number;
   replicatePriceMaxStaleSeconds?: number;
   replicatePriceFetchBudget?: number;
@@ -20,7 +19,6 @@ interface ConfigFile {
 
 export const DEFAULT_RECOMMENDER_MODEL = "deepseek/deepseek-v3.2";
 export const DEFAULT_CACHE_TTL_SECONDS = 3600;
-export const DEFAULT_REPLICATE_PAGE_PRICING = false;
 export const DEFAULT_REPLICATE_PRICE_TTL_SECONDS = 86_400;
 export const DEFAULT_REPLICATE_PRICE_MAX_STALE_SECONDS = 604_800;
 export const DEFAULT_REPLICATE_PRICE_FETCH_BUDGET = 40;
@@ -40,10 +38,6 @@ export function getConfig(): Config {
     replicateApiToken: process.env.REPLICATE_API_TOKEN ?? configFile?.replicateApiToken,
     elevenLabsApiKey: process.env.ELEVENLABS_API_KEY ?? configFile?.elevenLabsApiKey,
     togetherApiKey: process.env.TOGETHER_API_KEY ?? configFile?.togetherApiKey,
-    replicatePagePricing:
-      parseBooleanEnv("WHICHMODEL_REPLICATE_PAGE_PRICING") ??
-      configFile?.replicatePagePricing ??
-      DEFAULT_REPLICATE_PAGE_PRICING,
     replicatePriceTtlSeconds: resolveIntegerSetting(
       "WHICHMODEL_REPLICATE_PRICE_TTL_SECONDS",
       configFile?.replicatePriceTtlSeconds,
@@ -128,23 +122,6 @@ function parseIntegerEnv(name: string): number | undefined {
 
   const parsed = Number.parseInt(value, 10);
   return Number.isFinite(parsed) ? parsed : undefined;
-}
-
-function parseBooleanEnv(name: string): boolean | undefined {
-  const value = process.env[name];
-  if (typeof value !== "string") {
-    return undefined;
-  }
-
-  const normalized = value.trim().toLowerCase();
-  if (["1", "true", "yes", "on"].includes(normalized)) {
-    return true;
-  }
-  if (["0", "false", "no", "off"].includes(normalized)) {
-    return false;
-  }
-
-  return undefined;
 }
 
 function resolveIntegerSetting(

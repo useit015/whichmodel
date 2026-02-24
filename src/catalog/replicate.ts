@@ -3,7 +3,6 @@ import { normalizeReplicateModel } from './normalization.js';
 import { readCache, writeCache } from './cache.js';
 import {
   DEFAULT_CACHE_TTL_SECONDS,
-  DEFAULT_REPLICATE_PAGE_PRICING,
   DEFAULT_REPLICATE_PRICE_CONCURRENCY,
   DEFAULT_REPLICATE_PRICE_FETCH_BUDGET,
   DEFAULT_REPLICATE_PRICE_MAX_STALE_SECONDS,
@@ -48,7 +47,6 @@ export interface ReplicateCatalogOptions {
   sleep?: Sleep;
   noCache?: boolean;
   cacheTtl?: number;
-  replicatePagePricing?: boolean;
   replicatePriceTtlSeconds?: number;
   replicatePriceMaxStaleSeconds?: number;
   replicatePriceFetchBudget?: number;
@@ -66,7 +64,6 @@ export class ReplicateCatalog implements CatalogSource {
   private readonly sleep: Sleep;
   private readonly noCache: boolean;
   private readonly cacheTtl: number;
-  private readonly replicatePagePricing: boolean;
   private readonly replicatePriceTtlSeconds: number;
   private readonly replicatePriceMaxStaleSeconds: number;
   private readonly replicatePriceFetchBudget: number;
@@ -81,8 +78,6 @@ export class ReplicateCatalog implements CatalogSource {
     this.sleep = options.sleep ?? wait;
     this.noCache = options.noCache ?? false;
     this.cacheTtl = options.cacheTtl ?? DEFAULT_CACHE_TTL_SECONDS;
-    this.replicatePagePricing =
-      options.replicatePagePricing ?? DEFAULT_REPLICATE_PAGE_PRICING;
     this.replicatePriceTtlSeconds =
       options.replicatePriceTtlSeconds ?? DEFAULT_REPLICATE_PRICE_TTL_SECONDS;
     this.replicatePriceMaxStaleSeconds =
@@ -126,10 +121,6 @@ export class ReplicateCatalog implements CatalogSource {
   private async enrichMissingPricing(
     rawModels: ReplicateModel[]
   ): Promise<ReplicateModel[]> {
-    if (!this.replicatePagePricing) {
-      return rawModels;
-    }
-
     const budget = Math.max(0, this.replicatePriceFetchBudget);
     const concurrency = Math.max(1, this.replicatePriceConcurrency);
     if (budget === 0) {

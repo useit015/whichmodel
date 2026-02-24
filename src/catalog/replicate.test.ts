@@ -267,7 +267,6 @@ describe("ReplicateCatalog", () => {
         retryDelaysMs: [0],
         sleep: async () => {},
         noCache: true,
-        replicatePagePricing: true,
       });
 
       const models = await catalog.fetch();
@@ -284,7 +283,7 @@ describe("ReplicateCatalog", () => {
     });
   });
 
-  it("does not fetch model pages when pricing enrichment flag is disabled", async () => {
+  it("does not fetch model pages when pricing fetch budget is zero", async () => {
     const pageFetches: string[] = [];
     const fetchImpl = vi.fn<typeof fetch>().mockImplementation(async (input) => {
       const url = String(input);
@@ -312,7 +311,7 @@ describe("ReplicateCatalog", () => {
       retryDelaysMs: [0],
       sleep: async () => {},
       noCache: true,
-      replicatePagePricing: false,
+      replicatePriceFetchBudget: 0,
     });
 
     await catalog.fetch();
@@ -347,7 +346,6 @@ describe("ReplicateCatalog", () => {
         retryDelaysMs: [0],
         sleep: async () => {},
         noCache: true,
-        replicatePagePricing: true,
       });
 
       const models = await catalog.fetch();
@@ -397,7 +395,6 @@ describe("ReplicateCatalog", () => {
         retryDelaysMs: [0],
         sleep: async () => {},
         noCache: true,
-        replicatePagePricing: true,
         replicatePriceFetchBudget: 2,
         replicatePriceConcurrency: 1,
       });
@@ -451,7 +448,6 @@ describe("ReplicateCatalog", () => {
         retryDelaysMs: [0],
         sleep: async () => {},
         noCache: true,
-        replicatePagePricing: true,
       });
 
       const models = await catalog.fetch();
