@@ -3,6 +3,12 @@ import { normalizeOpenRouterModel } from './normalization.js';
 import { readCache, writeCache } from './cache.js';
 import { DEFAULT_CACHE_TTL_SECONDS } from '../config.js';
 import {
+  isAbortError,
+  wait,
+  withJitter,
+  DEFAULT_RETRY_DELAYS_MS
+} from '../utils/common.js';
+import {
   ExitCode,
   WhichModelError,
   type ModelEntry,
@@ -11,7 +17,6 @@ import {
 
 const DEFAULT_ENDPOINT = 'https://openrouter.ai/api/v1/models';
 const DEFAULT_TIMEOUT_MS = 10_000;
-const DEFAULT_RETRY_DELAYS_MS = [1_000, 2_000, 4_000];
 
 type Sleep = (ms: number) => Promise<void>;
 
@@ -39,7 +44,7 @@ export class OpenRouterCatalog implements CatalogSource {
   constructor(options: OpenRouterCatalogOptions = {}) {
     this.endpoint = options.endpoint ?? DEFAULT_ENDPOINT;
     this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-    this.retryDelaysMs = options.retryDelaysMs ?? DEFAULT_RETRY_DELAYS_MS;
+    this.retryDelaysMs = options.retryDelaysMs ?? [...DEFAULT_RETRY_DELAYS_MS];
     this.fetchImpl = options.fetchImpl ?? fetch;
     this.sleep = options.sleep ?? wait;
     this.noCache = options.noCache ?? false;
@@ -66,7 +71,7 @@ export class OpenRouterCatalog implements CatalogSource {
             this.shouldRetryStatus(response.status) &&
             attempt < maxAttempts - 1
           ) {
-            await this.sleep(this.retryDelayForAttempt(attempt));
+            await this.sleep(withJitter(this.retryDelayForAttempt(attempt)));
             continue;
           }
 
@@ -93,7 +98,7 @@ export class OpenRouterCatalog implements CatalogSource {
         lastError = error;
 
         if (this.shouldRetryError(error) && attempt < maxAttempts - 1) {
-          await this.sleep(this.retryDelayForAttempt(attempt));
+          await this.sleep(withJitter(this.retryDelayForAttempt(attempt)));
           continue;
         }
 
@@ -193,21 +198,4 @@ export class OpenRouterCatalog implements CatalogSource {
       'Check your internet connection and retry. Status page: https://status.openrouter.ai'
     );
   }
-}
-
-function isAbortError(error: unknown): boolean {
-  return (
-    typeof error === 'object' &&
-    error !== null &&
-    'name' in error &&
-    (error as { name?: string }).name === 'AbortError'
-  );
-}
-
-async function wait(ms: number): Promise<void> {
-  if (ms <= 0) return;
-
-  await new Promise<void>(resolve => {
-    setTimeout(resolve, ms);
-  });
 }

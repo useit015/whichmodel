@@ -4,10 +4,10 @@ import {
   type OpenRouterChatRequest,
   type OpenRouterChatResponse,
 } from "../types.js";
+import { isAbortError, wait, withJitter, DEFAULT_RETRY_DELAYS_MS } from "../utils/common.js";
 
 const OPENROUTER_CHAT_URL = "https://openrouter.ai/api/v1/chat/completions";
 const DEFAULT_TIMEOUT_MS = 30_000;
-const DEFAULT_RETRY_DELAYS_MS = [1_000, 2_000, 4_000];
 
 export interface LLMClientOptions {
   apiKey: string;
@@ -34,7 +34,7 @@ export async function requestRecommendationCompletion(
   options: LLMClientOptions
 ): Promise<LLMCompletion> {
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-  const retryDelaysMs = options.retryDelaysMs ?? DEFAULT_RETRY_DELAYS_MS;
+  const retryDelaysMs = options.retryDelaysMs ?? [...DEFAULT_RETRY_DELAYS_MS];
   const fetchImpl = options.fetchImpl ?? fetch;
   const maxAttempts = retryDelaysMs.length + 1;
   let lastError: unknown;
@@ -67,12 +67,12 @@ export async function requestRecommendationCompletion(
         }
 
         if (response.status === 429 && attempt < maxAttempts - 1) {
-          await wait(retryDelayForAttempt(retryDelaysMs, attempt));
+          await wait(withJitter(retryDelayForAttempt(retryDelaysMs, attempt)));
           continue;
         }
 
         if (shouldRetryStatus(response.status) && attempt < maxAttempts - 1) {
-          await wait(retryDelayForAttempt(retryDelaysMs, attempt));
+          await wait(withJitter(retryDelayForAttempt(retryDelaysMs, attempt)));
           continue;
         }
 
@@ -111,7 +111,7 @@ export async function requestRecommendationCompletion(
       }
 
       if (attempt < maxAttempts - 1 && isRetryableError(error)) {
-        await wait(retryDelayForAttempt(retryDelaysMs, attempt));
+        await wait(withJitter(retryDelayForAttempt(retryDelaysMs, attempt)));
         continue;
       }
 
@@ -203,25 +203,6 @@ function isRetryableError(error: unknown): boolean {
   return error instanceof TypeError;
 }
 
-function isAbortError(error: unknown): boolean {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "name" in error &&
-    (error as { name?: string }).name === "AbortError"
-  );
-}
-
-function retryDelayForAttempt(delays: number[], attempt: number): number {
+function retryDelayForAttempt(delays: ReadonlyArray<number>, attempt: number): number {
   return delays[Math.min(attempt, delays.length - 1)] ?? 0;
-}
-
-async function wait(ms: number): Promise<void> {
-  if (ms <= 0) {
-    return;
-  }
-
-  await new Promise<void>((resolve) => {
-    setTimeout(resolve, ms);
-  });
 }

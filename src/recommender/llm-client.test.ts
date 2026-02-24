@@ -2,11 +2,37 @@ import { describe, expect, it, vi } from "vitest";
 import { ExitCode } from "../types.js";
 import { requestRecommendationCompletion } from "./llm-client.js";
 
-function mockResponse(status: number, body: unknown): Response {
+/**
+ * Creates a mock Response object for testing
+ * Note: This is a partial mock that only implements the methods used by llm-client
+ */
+interface MockResponseOptions {
+  status: number;
+  body: unknown;
+  statusText?: string;
+  headers?: Headers;
+}
+
+function mockResponse(status: number, body: unknown, statusText = ""): Response {
+  const ok = status >= 200 && status < 300;
   return {
-    ok: status >= 200 && status < 300,
+    ok,
     status,
+    statusText: statusText || (ok ? "OK" : "Error"),
+    headers: new Headers(),
+    type: "basic",
+    url: "",
+    redirected: false,
+    body: null,
+    bodyUsed: false,
     json: async () => body,
+    text: async () => JSON.stringify(body),
+    arrayBuffer: async () => new ArrayBuffer(0),
+    blob: async () => new Blob(),
+    formData: async () => new FormData(),
+    clone(): Response {
+      return mockResponse(status, body, statusText);
+    },
   } as Response;
 }
 

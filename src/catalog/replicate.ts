@@ -3,6 +3,12 @@ import { normalizeReplicateModel } from './normalization.js';
 import { readCache, writeCache } from './cache.js';
 import { DEFAULT_CACHE_TTL_SECONDS } from '../config.js';
 import {
+  isAbortError,
+  wait,
+  withJitter,
+  DEFAULT_RETRY_DELAYS_MS
+} from '../utils/common.js';
+import {
   ExitCode,
   WhichModelError,
   type ModelEntry,
@@ -12,7 +18,6 @@ import {
 
 const DEFAULT_ENDPOINT = 'https://api.replicate.com/v1/models';
 const DEFAULT_TIMEOUT_MS = 10_000;
-const DEFAULT_RETRY_DELAYS_MS = [1_000, 2_000, 4_000];
 const MAX_MODEL_PAGES = 8;
 const MAX_CANDIDATE_MODELS = 300;
 
@@ -45,7 +50,7 @@ export class ReplicateCatalog implements CatalogSource {
     this.apiToken = options.apiToken;
     this.endpoint = options.endpoint ?? DEFAULT_ENDPOINT;
     this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-    this.retryDelaysMs = options.retryDelaysMs ?? DEFAULT_RETRY_DELAYS_MS;
+    this.retryDelaysMs = options.retryDelaysMs ?? [...DEFAULT_RETRY_DELAYS_MS];
     this.fetchImpl = options.fetchImpl ?? fetch;
     this.sleep = options.sleep ?? wait;
     this.noCache = options.noCache ?? false;
@@ -158,7 +163,7 @@ export class ReplicateCatalog implements CatalogSource {
             this.shouldRetryStatus(response.status) &&
             attempt < maxAttempts - 1
           ) {
-            await this.sleep(this.retryDelayForAttempt(attempt));
+            await this.sleep(withJitter(this.retryDelayForAttempt(attempt)));
             continue;
           }
 
@@ -170,7 +175,7 @@ export class ReplicateCatalog implements CatalogSource {
         lastError = error;
 
         if (this.shouldRetryError(error) && attempt < maxAttempts - 1) {
-          await this.sleep(this.retryDelayForAttempt(attempt));
+          await this.sleep(withJitter(this.retryDelayForAttempt(attempt)));
           continue;
         }
 
@@ -274,20 +279,4 @@ export class ReplicateCatalog implements CatalogSource {
       'Check your internet connection and retry.'
     );
   }
-}
-
-function isAbortError(error: unknown): boolean {
-  return (
-    typeof error === 'object' &&
-    error !== null &&
-    'name' in error &&
-    (error as { name?: string }).name === 'AbortError'
-  );
-}
-
-async function wait(ms: number): Promise<void> {
-  if (ms <= 0) return;
-  await new Promise<void>(resolve => {
-    setTimeout(resolve, ms);
-  });
 }

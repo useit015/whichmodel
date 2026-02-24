@@ -3,6 +3,12 @@ import { classifyFalCategory, normalizeFalModel } from './normalization.js';
 import { readCache, writeCache } from './cache.js';
 import { DEFAULT_CACHE_TTL_SECONDS } from '../config.js';
 import {
+  isAbortError,
+  wait,
+  withJitter,
+  DEFAULT_RETRY_DELAYS_MS
+} from '../utils/common.js';
+import {
   ExitCode,
   WhichModelError,
   type FalModel,
@@ -12,7 +18,6 @@ import {
 const DEFAULT_MODELS_ENDPOINT = 'https://api.fal.ai/v1/models';
 const DEFAULT_PRICING_ENDPOINT = 'https://api.fal.ai/v1/models/pricing';
 const DEFAULT_TIMEOUT_MS = 10_000;
-const DEFAULT_RETRY_DELAYS_MS = [1_000, 2_000, 4_000];
 const DEFAULT_PAGE_SIZE = 200;
 const PRICING_CHUNK_SIZE = 20;
 const MAX_MODEL_PAGES = 8;
@@ -74,7 +79,7 @@ export class FalCatalog implements CatalogSource {
     this.modelsEndpoint = options.modelsEndpoint ?? DEFAULT_MODELS_ENDPOINT;
     this.pricingEndpoint = options.pricingEndpoint ?? DEFAULT_PRICING_ENDPOINT;
     this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-    this.retryDelaysMs = options.retryDelaysMs ?? DEFAULT_RETRY_DELAYS_MS;
+    this.retryDelaysMs = options.retryDelaysMs ?? [...DEFAULT_RETRY_DELAYS_MS];
     this.fetchImpl = options.fetchImpl ?? fetch;
     this.sleep = options.sleep ?? wait;
     this.noCache = options.noCache ?? false;
@@ -250,7 +255,7 @@ export class FalCatalog implements CatalogSource {
             this.shouldRetryStatus(response.status) &&
             attempt < maxAttempts - 1
           ) {
-            await this.sleep(this.retryDelayForAttempt(attempt));
+            await this.sleep(withJitter(this.retryDelayForAttempt(attempt)));
             continue;
           }
 
@@ -262,7 +267,7 @@ export class FalCatalog implements CatalogSource {
         lastError = error;
 
         if (this.shouldRetryError(error) && attempt < maxAttempts - 1) {
-          await this.sleep(this.retryDelayForAttempt(attempt));
+          await this.sleep(withJitter(this.retryDelayForAttempt(attempt)));
           continue;
         }
 
@@ -428,26 +433,6 @@ export class FalCatalog implements CatalogSource {
     );
   }
 }
-
-function isAbortError(error: unknown): boolean {
-  return (
-    typeof error === 'object' &&
-    error !== null &&
-    'name' in error &&
-    (error as { name?: string }).name === 'AbortError'
-  );
-}
-
-async function wait(ms: number): Promise<void> {
-  if (ms <= 0) {
-    return;
-  }
-
-  await new Promise<void>(resolve => {
-    setTimeout(resolve, ms);
-  });
-}
-
 function chunked<T>(values: T[], size: number): T[][] {
   if (size <= 0) {
     return [values];

@@ -152,4 +152,100 @@ describe("OpenRouterCatalog", () => {
     });
     expect(fetchImpl).toHaveBeenCalledTimes(3);
   });
+
+  it("retries 429 rate limit responses", async () => {
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(mockResponse(429, { error: "rate limited" }))
+      .mockResolvedValueOnce(mockResponse(200, { data: [] }));
+
+    const catalog = new OpenRouterCatalog({
+      fetchImpl,
+      retryDelaysMs: [0],
+      sleep: async () => {},
+      noCache: true,
+    });
+
+    await catalog.fetch();
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  it("retries 408 request timeout responses", async () => {
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(mockResponse(408, { error: "timeout" }))
+      .mockResolvedValueOnce(mockResponse(200, { data: [] }));
+
+    const catalog = new OpenRouterCatalog({
+      fetchImpl,
+      retryDelaysMs: [0],
+      sleep: async () => {},
+      noCache: true,
+    });
+
+    await catalog.fetch();
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not retry 4xx client errors (except 408/429)", async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(mockResponse(404, { error: "not found" }));
+    const catalog = new OpenRouterCatalog({
+      fetchImpl,
+      retryDelaysMs: [0],
+      sleep: async () => {},
+      noCache: true,
+    });
+
+    await expect(catalog.fetch()).rejects.toMatchObject({
+      exitCode: ExitCode.NETWORK_ERROR,
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it("retries TypeError (network failures)", async () => {
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockRejectedValueOnce(new TypeError("network error"))
+      .mockResolvedValueOnce(mockResponse(200, { data: [] }));
+
+    const catalog = new OpenRouterCatalog({
+      fetchImpl,
+      retryDelaysMs: [0],
+      sleep: async () => {},
+      noCache: true,
+    });
+
+    await catalog.fetch();
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  it("returns typed network error for non-Error failures", async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockRejectedValue("string error");
+    const catalog = new OpenRouterCatalog({
+      fetchImpl,
+      retryDelaysMs: [0],
+      sleep: async () => {},
+      noCache: true,
+    });
+
+    await expect(catalog.fetch()).rejects.toMatchObject({
+      exitCode: ExitCode.NETWORK_ERROR,
+      message: expect.stringContaining("Unknown network failure"),
+    });
+  });
+
+  it("throws error for invalid response format", async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(mockResponse(200, { not_data: [] }));
+    const catalog = new OpenRouterCatalog({
+      fetchImpl,
+      retryDelaysMs: [0],
+      sleep: async () => {},
+      noCache: true,
+    });
+
+    await expect(catalog.fetch()).rejects.toMatchObject({
+      exitCode: ExitCode.NETWORK_ERROR,
+      message: "OpenRouter catalog response is invalid.",
+    });
+  });
 });
