@@ -316,12 +316,12 @@ npm run dev -- list --modality image --sort price
 ```
 
 ### Exit Criteria
-- [ ] Cache reduces API calls by >90% for repeated queries
-- [ ] Compare command works for any two models
-- [ ] Cost estimation is accurate (±20%)
-- [ ] Self-updating model works
-- [ ] Stats and list commands work
-- [ ] No regressions in core functionality
+- [x] Cache reduces API calls by >90% for repeated queries
+- [x] Compare command works for any two models
+- [x] Cost estimation is accurate (±20%)
+- [x] Self-updating model works
+- [x] Stats and list commands work
+- [x] No regressions in core functionality
 
 ---
 
