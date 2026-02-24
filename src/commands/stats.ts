@@ -22,6 +22,7 @@ export interface ModalityStats {
 
 export interface CatalogStats {
   totalModels: number;
+  queriedSources?: string[];
   sources: string[];
   byModality: Record<string, ModalityStats>;
   configuredSources: string[];
@@ -55,6 +56,9 @@ const MODALITY_LABELS: Record<Modality, string> = {
   embedding: "Embedding",
   multimodal: "Multimodal",
 };
+
+const DEFAULT_TERMINAL_COLUMNS = 80;
+const MIN_CONTENT_WIDTH = 72;
 
 /**
  * Format a price for display
@@ -99,7 +103,11 @@ function getPriceUnit(modality: Modality): string {
 /**
  * Compute statistics from a list of models
  */
-export function computeStats(models: ModelEntry[], config: Config): CatalogStats {
+export function computeStats(
+  models: ModelEntry[],
+  config: Config,
+  queriedSources?: string[]
+): CatalogStats {
   const byModality: Record<string, ModalityStats> = {};
   const sources = new Set<string>();
   let totalModels = 0;
@@ -177,11 +185,48 @@ export function computeStats(models: ModelEntry[], config: Config): CatalogStats
 
   return {
     totalModels,
+    queriedSources,
     sources: Array.from(sources).sort(),
     byModality,
     configuredSources,
     missingSources,
   };
+}
+
+function getMaxContentWidth(): number {
+  const columns = process.stdout?.columns;
+  if (typeof columns !== "number" || !Number.isFinite(columns) || columns <= 0) {
+    return DEFAULT_TERMINAL_COLUMNS - 8;
+  }
+  return Math.max(MIN_CONTENT_WIDTH, columns - 8);
+}
+
+function truncateCell(value: string, width: number): string {
+  if (value.length <= width) {
+    return value;
+  }
+  if (width <= 3) {
+    return value.slice(0, width);
+  }
+  return `${value.slice(0, width - 3)}...`;
+}
+
+function buildSeparator(
+  left: string,
+  middle: string,
+  right: string,
+  widths: number[]
+): string {
+  return `${left}${widths.map((width) => "─".repeat(width + 2)).join(middle)}${right}`;
+}
+
+function buildRow(cells: string[], widths: number[]): string {
+  return `│ ${cells
+    .map((cell, index) => {
+      const width = widths[index] ?? 0;
+      return truncateCell(cell, width).padEnd(width);
+    })
+    .join(" │ ")} │`;
 }
 
 /**
@@ -190,26 +235,28 @@ export function computeStats(models: ModelEntry[], config: Config): CatalogStats
 export function formatStatsTerminal(stats: CatalogStats, noColor: boolean = false): string {
   const c = noColor ? new Chalk({ level: 0 }) : chalk;
   const lines: string[] = [];
-
-  lines.push(
-    `Catalog: ${c.bold(stats.totalModels.toString())} models from ${c.bold(stats.sources.length.toString())} source${stats.sources.length !== 1 ? "s" : ""}`
-  );
+  const queriedSourceCount = stats.queriedSources?.length ?? stats.sources.length;
+  if (queriedSourceCount !== stats.sources.length) {
+    lines.push(
+      `Catalog: ${c.bold(stats.totalModels.toString())} models from ${c.bold(
+        queriedSourceCount.toString()
+      )} queried source${queriedSourceCount !== 1 ? "s" : ""} (${c.bold(
+        stats.sources.length.toString()
+      )} with priced models)`
+    );
+  } else {
+    lines.push(
+      `Catalog: ${c.bold(stats.totalModels.toString())} models from ${c.bold(
+        stats.sources.length.toString()
+      )} source${stats.sources.length !== 1 ? "s" : ""}`
+    );
+  }
   lines.push("");
-
-  // Table header
-  lines.push("┌────────────────┬───────┬────────────────────────────┐");
-  lines.push("│ Modality       │ Count │ Price Range                │");
-  lines.push("├────────────────┼───────┼────────────────────────────┤");
-
-  // Table rows
-  for (const modality of MODALITY_ORDER) {
+  const rows = MODALITY_ORDER.map((modality) => {
     const label = MODALITY_LABELS[modality];
     const modStats = stats.byModality[modality];
-
-    let priceRange: string;
-    if (!modStats || modStats.count === 0) {
-      priceRange = "N/A";
-    } else {
+    let priceRange = "N/A";
+    if (modStats && modStats.count > 0) {
       const unit = getPriceUnit(modality);
       const min = formatPrice(modStats.priceRange.min);
       const max = formatPrice(modStats.priceRange.max);
@@ -221,16 +268,49 @@ export function formatStatsTerminal(stats: CatalogStats, noColor: boolean = fals
         priceRange = `${min} - ${max} ${unit}`;
       }
     }
+    return {
+      label,
+      count: (modStats?.count ?? 0).toString(),
+      priceRange,
+    };
+  });
 
-    const count = modStats?.count ?? 0;
-    const countStr = count.toString().padStart(5);
-    const labelPadded = label.padEnd(14);
-    const pricePadded = priceRange.padEnd(26);
+  let labelWidth = Math.max("Modality".length, ...rows.map((row) => row.label.length));
+  let countWidth = Math.max("Count".length, ...rows.map((row) => row.count.length));
+  let priceWidth = Math.max("Price Range".length, ...rows.map((row) => row.priceRange.length));
+  const widths: [number, number, number] = [labelWidth, countWidth, priceWidth];
+  const tableWidth = (): number => widths.reduce((sum, width) => sum + width, 0) + 10;
+  const maxContentWidth = getMaxContentWidth();
+  const minimums: [number, number, number] = [8, 5, 12];
 
-    lines.push(`│ ${labelPadded} │ ${countStr} │ ${pricePadded} │`);
+  let overflow = tableWidth() - maxContentWidth;
+  if (overflow > 0) {
+    const shrinkOrder: Array<0 | 1 | 2> = [2, 0];
+    for (const index of shrinkOrder) {
+      if (overflow <= 0) {
+        break;
+      }
+      const reducible = widths[index] - minimums[index];
+      if (reducible <= 0) {
+        continue;
+      }
+      const reduction = Math.min(reducible, overflow);
+      widths[index] -= reduction;
+      overflow -= reduction;
+    }
+  }
+  [labelWidth, countWidth, priceWidth] = widths;
+  const finalWidths = [labelWidth, countWidth, priceWidth];
+
+  lines.push(buildSeparator("┌", "┬", "┐", finalWidths));
+  lines.push(buildRow(["Modality", "Count", "Price Range"], finalWidths));
+  lines.push(buildSeparator("├", "┼", "┤", finalWidths));
+
+  for (const row of rows) {
+    lines.push(buildRow([row.label, row.count, row.priceRange], finalWidths));
   }
 
-  lines.push("└────────────────┴───────┴────────────────────────────┘");
+  lines.push(buildSeparator("└", "┴", "┘", finalWidths));
   lines.push("");
 
   // Sources section
@@ -258,6 +338,7 @@ export function formatStatsTerminal(stats: CatalogStats, noColor: boolean = fals
 export function formatStatsJSON(stats: CatalogStats): object {
   return {
     totalModels: stats.totalModels,
+    queriedSources: stats.queriedSources ?? null,
     sources: stats.sources,
     byModality: Object.fromEntries(
       Object.entries(stats.byModality).map(([modality, modStats]) => [

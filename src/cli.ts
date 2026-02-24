@@ -441,7 +441,7 @@ program
         spinner.stop();
       }
 
-      const stats = computeStats(models, config);
+      const stats = computeStats(models, config, sources);
 
       if (asJson) {
         console.log(JSON.stringify(formatStatsJSON(stats), null, 2));

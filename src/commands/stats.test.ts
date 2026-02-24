@@ -142,6 +142,17 @@ describe("computeStats", () => {
     expect(stats.missingSources.some((s) => s.name === "openrouter")).toBe(false);
   });
 
+  it("preserves queried sources when provided", () => {
+    const config = {
+      apiKey: "sk-or-test",
+      recommenderModel: "test/model",
+      cacheTtl: 3600,
+    };
+
+    const stats = computeStats([createTextModel()], config, ["openrouter", "fal", "replicate"]);
+    expect(stats.queriedSources).toEqual(["openrouter", "fal", "replicate"]);
+  });
+
   it("skips unusable pricing entries in totals and ranges", () => {
     const config = {
       apiKey: "sk-or-test",
@@ -205,5 +216,21 @@ describe("formatStatsTerminal", () => {
 
     expect(output).toContain("0 models");
     expect(output).toContain("╭");
+  });
+
+  it("shows queried source count when it differs from priced source count", () => {
+    const stats = {
+      totalModels: 10,
+      queriedSources: ["openrouter", "fal", "replicate"],
+      sources: ["openrouter", "fal"],
+      byModality: {
+        text: { count: 10, priceRange: { min: 0.01, max: 1.0 } },
+      },
+      configuredSources: ["openrouter", "fal", "replicate"],
+      missingSources: [],
+    };
+
+    const output = formatStatsTerminal(stats, true);
+    expect(output).toContain("3 queried sources (2 with priced models)");
   });
 });
