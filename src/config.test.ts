@@ -1,6 +1,11 @@
 import { afterEach, describe, expect, it } from "vitest";
 import {
   DEFAULT_CACHE_TTL_SECONDS,
+  DEFAULT_REPLICATE_PAGE_PRICING,
+  DEFAULT_REPLICATE_PRICE_CONCURRENCY,
+  DEFAULT_REPLICATE_PRICE_FETCH_BUDGET,
+  DEFAULT_REPLICATE_PRICE_MAX_STALE_SECONDS,
+  DEFAULT_REPLICATE_PRICE_TTL_SECONDS,
   DEFAULT_RECOMMENDER_MODEL,
   getConfig,
   requireApiKey,
@@ -12,6 +17,11 @@ const ENV_KEYS = [
   "OPENROUTER_API_KEY",
   "WHICHMODEL_MODEL",
   "WHICHMODEL_CACHE_TTL",
+  "WHICHMODEL_REPLICATE_PAGE_PRICING",
+  "WHICHMODEL_REPLICATE_PRICE_TTL_SECONDS",
+  "WHICHMODEL_REPLICATE_PRICE_MAX_STALE_SECONDS",
+  "WHICHMODEL_REPLICATE_PRICE_FETCH_BUDGET",
+  "WHICHMODEL_REPLICATE_PRICE_CONCURRENCY",
   "WHICHMODEL_CONFIG",
 ] as const;
 
@@ -37,11 +47,21 @@ describe("getConfig", () => {
     process.env.OPENROUTER_API_KEY = "sk-or-test";
     process.env.WHICHMODEL_MODEL = "openai/gpt-4o-mini";
     process.env.WHICHMODEL_CACHE_TTL = "120";
+    process.env.WHICHMODEL_REPLICATE_PAGE_PRICING = "true";
+    process.env.WHICHMODEL_REPLICATE_PRICE_TTL_SECONDS = "600";
+    process.env.WHICHMODEL_REPLICATE_PRICE_MAX_STALE_SECONDS = "3600";
+    process.env.WHICHMODEL_REPLICATE_PRICE_FETCH_BUDGET = "12";
+    process.env.WHICHMODEL_REPLICATE_PRICE_CONCURRENCY = "3";
 
     const config = getConfig();
     expect(config.apiKey).toBe("sk-or-test");
     expect(config.recommenderModel).toBe("openai/gpt-4o-mini");
     expect(config.cacheTtl).toBe(120);
+    expect(config.replicatePagePricing).toBe(true);
+    expect(config.replicatePriceTtlSeconds).toBe(600);
+    expect(config.replicatePriceMaxStaleSeconds).toBe(3600);
+    expect(config.replicatePriceFetchBudget).toBe(12);
+    expect(config.replicatePriceConcurrency).toBe(3);
   });
 
   it("uses defaults when env is missing", () => {
@@ -49,11 +69,21 @@ describe("getConfig", () => {
     delete process.env.OPENROUTER_API_KEY;
     delete process.env.WHICHMODEL_MODEL;
     delete process.env.WHICHMODEL_CACHE_TTL;
+    delete process.env.WHICHMODEL_REPLICATE_PAGE_PRICING;
+    delete process.env.WHICHMODEL_REPLICATE_PRICE_TTL_SECONDS;
+    delete process.env.WHICHMODEL_REPLICATE_PRICE_MAX_STALE_SECONDS;
+    delete process.env.WHICHMODEL_REPLICATE_PRICE_FETCH_BUDGET;
+    delete process.env.WHICHMODEL_REPLICATE_PRICE_CONCURRENCY;
 
     const config = getConfig();
     expect(config.apiKey).toBe("");
     expect(config.recommenderModel).toBe(DEFAULT_RECOMMENDER_MODEL);
     expect(config.cacheTtl).toBe(DEFAULT_CACHE_TTL_SECONDS);
+    expect(config.replicatePagePricing).toBe(DEFAULT_REPLICATE_PAGE_PRICING);
+    expect(config.replicatePriceTtlSeconds).toBe(DEFAULT_REPLICATE_PRICE_TTL_SECONDS);
+    expect(config.replicatePriceMaxStaleSeconds).toBe(DEFAULT_REPLICATE_PRICE_MAX_STALE_SECONDS);
+    expect(config.replicatePriceFetchBudget).toBe(DEFAULT_REPLICATE_PRICE_FETCH_BUDGET);
+    expect(config.replicatePriceConcurrency).toBe(DEFAULT_REPLICATE_PRICE_CONCURRENCY);
   });
 });
 

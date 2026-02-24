@@ -11,10 +11,20 @@ interface ConfigFile {
   elevenLabsApiKey?: string;
   togetherApiKey?: string;
   cacheTtl?: number;
+  replicatePagePricing?: boolean;
+  replicatePriceTtlSeconds?: number;
+  replicatePriceMaxStaleSeconds?: number;
+  replicatePriceFetchBudget?: number;
+  replicatePriceConcurrency?: number;
 }
 
 export const DEFAULT_RECOMMENDER_MODEL = "deepseek/deepseek-v3.2";
 export const DEFAULT_CACHE_TTL_SECONDS = 3600;
+export const DEFAULT_REPLICATE_PAGE_PRICING = false;
+export const DEFAULT_REPLICATE_PRICE_TTL_SECONDS = 86_400;
+export const DEFAULT_REPLICATE_PRICE_MAX_STALE_SECONDS = 604_800;
+export const DEFAULT_REPLICATE_PRICE_FETCH_BUDGET = 40;
+export const DEFAULT_REPLICATE_PRICE_CONCURRENCY = 4;
 
 export function getConfig(): Config {
   const configFile = loadConfigFile();
@@ -30,6 +40,34 @@ export function getConfig(): Config {
     replicateApiToken: process.env.REPLICATE_API_TOKEN ?? configFile?.replicateApiToken,
     elevenLabsApiKey: process.env.ELEVENLABS_API_KEY ?? configFile?.elevenLabsApiKey,
     togetherApiKey: process.env.TOGETHER_API_KEY ?? configFile?.togetherApiKey,
+    replicatePagePricing:
+      parseBooleanEnv("WHICHMODEL_REPLICATE_PAGE_PRICING") ??
+      configFile?.replicatePagePricing ??
+      DEFAULT_REPLICATE_PAGE_PRICING,
+    replicatePriceTtlSeconds: resolveIntegerSetting(
+      "WHICHMODEL_REPLICATE_PRICE_TTL_SECONDS",
+      configFile?.replicatePriceTtlSeconds,
+      DEFAULT_REPLICATE_PRICE_TTL_SECONDS,
+      1
+    ),
+    replicatePriceMaxStaleSeconds: resolveIntegerSetting(
+      "WHICHMODEL_REPLICATE_PRICE_MAX_STALE_SECONDS",
+      configFile?.replicatePriceMaxStaleSeconds,
+      DEFAULT_REPLICATE_PRICE_MAX_STALE_SECONDS,
+      1
+    ),
+    replicatePriceFetchBudget: resolveIntegerSetting(
+      "WHICHMODEL_REPLICATE_PRICE_FETCH_BUDGET",
+      configFile?.replicatePriceFetchBudget,
+      DEFAULT_REPLICATE_PRICE_FETCH_BUDGET,
+      0
+    ),
+    replicatePriceConcurrency: resolveIntegerSetting(
+      "WHICHMODEL_REPLICATE_PRICE_CONCURRENCY",
+      configFile?.replicatePriceConcurrency,
+      DEFAULT_REPLICATE_PRICE_CONCURRENCY,
+      1
+    ),
   };
 }
 
@@ -90,4 +128,41 @@ function parseIntegerEnv(name: string): number | undefined {
 
   const parsed = Number.parseInt(value, 10);
   return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function parseBooleanEnv(name: string): boolean | undefined {
+  const value = process.env[name];
+  if (typeof value !== "string") {
+    return undefined;
+  }
+
+  const normalized = value.trim().toLowerCase();
+  if (["1", "true", "yes", "on"].includes(normalized)) {
+    return true;
+  }
+  if (["0", "false", "no", "off"].includes(normalized)) {
+    return false;
+  }
+
+  return undefined;
+}
+
+function resolveIntegerSetting(
+  envName: string,
+  fileValue: number | undefined,
+  fallback: number,
+  min: number
+): number {
+  const envValue = parseIntegerEnv(envName);
+  if (typeof envValue === "number" && envValue >= min) {
+    return envValue;
+  }
+
+  const configValue =
+    typeof fileValue === "number" && Number.isFinite(fileValue) ? Math.trunc(fileValue) : undefined;
+  if (typeof configValue === "number" && configValue >= min) {
+    return configValue;
+  }
+
+  return fallback;
 }

@@ -337,6 +337,21 @@ export interface Config {
 
   /** Together AI API key (optional) */
   togetherApiKey?: string;
+
+  /** Enable Replicate model-page pricing enrichment (disabled by default) */
+  replicatePagePricing?: boolean;
+
+  /** Freshness TTL for Replicate page-pricing entries in seconds */
+  replicatePriceTtlSeconds?: number;
+
+  /** Maximum allowed staleness window for Replicate page-pricing entries in seconds */
+  replicatePriceMaxStaleSeconds?: number;
+
+  /** Max number of Replicate page-pricing lookups allowed per run */
+  replicatePriceFetchBudget?: number;
+
+  /** Max concurrent Replicate page-pricing lookups per run */
+  replicatePriceConcurrency?: number;
 }
 
 /**
@@ -520,6 +535,33 @@ export interface CacheStats {
 
   /** Statistics per source */
   sources: CacheSourceStats[];
+}
+
+export type ReplicatePricingSource = "billingConfig" | "price-string";
+
+export interface ReplicatePricingEntry {
+  /** Normalized Replicate pricing payload merged into raw model.pricing */
+  pricing: Record<string, number>;
+
+  /** Where the pricing payload came from on the Replicate model page */
+  source: ReplicatePricingSource;
+
+  /** Timestamp when this entry was fetched (Unix epoch in seconds) */
+  fetchedAt: number;
+
+  /** Timestamp when this entry expires (Unix epoch in seconds) */
+  expiresAt: number;
+}
+
+export interface ReplicatePricingCacheFile {
+  /** Cache schema version */
+  version: 1;
+
+  /** Last cache write time (Unix epoch in seconds) */
+  updatedAt: number;
+
+  /** Per-model pricing entries keyed by owner/name */
+  entries: Record<string, ReplicatePricingEntry>;
 }
 
 // =============================================================================
