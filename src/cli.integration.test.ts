@@ -200,6 +200,7 @@ describe("CLI integration error handling", () => {
       expect(result.status).toBe(0);
       expect(result.stdout).toContain('"models"');
       expect(result.stdout).not.toContain("┌");
+      expect(result.stdout).not.toContain("╭");
     } finally {
       cache.cleanup();
     }
@@ -218,6 +219,36 @@ describe("CLI integration error handling", () => {
       expect(result.stdout).toContain('"totalModels"');
       expect(result.stdout).toContain('"sources"');
       expect(result.stdout).not.toContain("┌");
+      expect(result.stdout).not.toContain("╭");
+    } finally {
+      cache.cleanup();
+    }
+  });
+
+  it("emits pure JSON for compare --json when both IDs resolve to the same model", () => {
+    const cache = createTempOpenRouterCache();
+    try {
+      const result = runCLI(
+        [
+          "compare",
+          "openrouter::openai/gpt-4o-mini",
+          "openrouter::openai/gpt-4o-mini",
+          "--task",
+          "summarize legal contracts",
+          "--json",
+        ],
+        {
+          OPENROUTER_API_KEY: "sk-or-test",
+          WHICHMODEL_CONFIG: "/tmp/whichmodel-config-does-not-exist.json",
+          XDG_CACHE_HOME: cache.xdgCacheHome,
+        }
+      );
+
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain('"winner"');
+      expect(result.stdout).not.toContain("╭");
+      expect(result.stdout).not.toContain("╰");
+      expect(() => JSON.parse(result.stdout)).not.toThrow();
     } finally {
       cache.cleanup();
     }

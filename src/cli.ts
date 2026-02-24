@@ -26,6 +26,7 @@ import {
   validateConfig,
 } from "./config.js";
 import { toJsonOutput } from "./formatter/json.js";
+import { renderBox } from "./formatter/box.js";
 import { formatTerminal } from "./formatter/terminal.js";
 import { recommend } from "./recommender/index.js";
 import {
@@ -252,8 +253,45 @@ program
 
         // Check if comparing the same model
         if (modelAEntry.id === modelBEntry.id) {
-          console.log(`Both model IDs resolve to the same model: ${modelAEntry.name}`);
-          console.log(`ID: ${modelAEntry.id}`);
+          if (asJson) {
+            console.log(
+              JSON.stringify(
+                formatCompareJSON(
+                  {
+                    winner: "tie",
+                    reasoning: "Both model IDs resolve to the same model.",
+                    modelA: {
+                      strengths: ["Same model selected"],
+                      weaknesses: [],
+                      estimatedCost: "N/A",
+                      suitedFor: ["Use a different second model for comparison"],
+                    },
+                    modelB: {
+                      strengths: ["Same model selected"],
+                      weaknesses: [],
+                      estimatedCost: "N/A",
+                      suitedFor: ["Use a different second model for comparison"],
+                    },
+                  },
+                  modelAEntry,
+                  modelBEntry
+                ),
+                null,
+                2
+              )
+            );
+            return;
+          }
+
+          console.log(
+            renderBox(
+              [
+                `Both model IDs resolve to the same model: ${modelAEntry.name}`,
+                `ID: ${modelAEntry.id}`,
+              ].join("\n"),
+              { title: "Compare", noColor, borderColor: "yellow" }
+            )
+          );
           return;
         }
 
@@ -414,17 +452,21 @@ program
   .description("Manage catalog cache")
   .option("--stats", "Show cache statistics")
   .option("--clear", "Clear all cached catalog data")
-  .action(async (options: { stats?: boolean; clear?: boolean }) => {
+  .action(async (options: { stats?: boolean; clear?: boolean }, command: Command) => {
     try {
+      const mergedOptions = command.optsWithGlobals() as OptionValues;
+      const noColor = mergedOptions.color === false || Boolean(process.env.NO_COLOR);
       if (options.clear) {
         await invalidateCache();
-        console.log("Cache cleared.");
+        console.log(
+          renderBox("Cache cleared.", { title: "Cache", noColor, borderColor: "magenta" })
+        );
         return;
       }
 
       // Default to showing stats
       const stats = await getCacheStats();
-      console.log(formatCacheStats(stats));
+      console.log(formatCacheStats(stats, noColor));
     } catch (error) {
       handleCLIError(error);
     }
