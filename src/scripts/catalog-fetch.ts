@@ -4,6 +4,7 @@ import { OpenRouterCatalog } from "../catalog/openrouter.js";
 import { ReplicateCatalog } from "../catalog/replicate.js";
 import { parseSourcesCsv, validateSupportedSourcesList } from "../catalog/sources.js";
 import { getConfig } from "../config.js";
+import { wrapResultAsync } from "../utils/result.js";
 import { ExitCode, WhichModelError, type ModelEntry } from "../types.js";
 
 async function main(): Promise<void> {
@@ -31,7 +32,19 @@ async function main(): Promise<void> {
     },
   }));
 
-  const settled = await Promise.allSettled(fetchers.map((fetcher) => fetcher.fetch()));
+  const settledResult = await wrapResultAsync(
+    () => Promise.allSettled(fetchers.map((fetcher) => fetcher.fetch())),
+    (error) =>
+      new WhichModelError(
+        error instanceof Error ? error.message : "Failed to fetch source catalogs.",
+        ExitCode.NETWORK_ERROR,
+        "Retry in a few minutes."
+      )
+  );
+  if (settledResult.isErr()) {
+    throw settledResult.error;
+  }
+  const settled = settledResult.value;
   const successful: Array<{ source: string; models: ModelEntry[] }> = [];
   const failed: Array<{ source: string; message: string }> = [];
 

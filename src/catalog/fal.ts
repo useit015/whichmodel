@@ -3,11 +3,16 @@ import { classifyFalCategory, normalizeFalModel } from './normalization.js';
 import { readCache, writeCache } from './cache.js';
 import { DEFAULT_CACHE_TTL_SECONDS } from '../config.js';
 import {
+  parseFalModelsListResponse,
+  parseFalPricingResponse
+} from '../schemas/provider-schemas.js';
+import {
   isAbortError,
   wait,
   withJitter,
   DEFAULT_RETRY_DELAYS_MS
 } from '../utils/common.js';
+import { wrapResultAsync } from '../utils/result.js';
 import {
   ExitCode,
   WhichModelError,
@@ -43,22 +48,6 @@ interface FalPlatformModel {
     display_name?: string;
     category?: string;
   };
-}
-
-interface FalModelsListResponse {
-  models?: FalPlatformModel[];
-  has_more?: boolean;
-  next_cursor?: string | null;
-}
-
-interface FalPlatformPrice {
-  endpoint_id: string;
-  unit_price: number;
-  unit?: string;
-}
-
-interface FalPricingResponse {
-  prices?: FalPlatformPrice[];
 }
 
 export class FalCatalog implements CatalogSource {
@@ -137,17 +126,14 @@ export class FalCatalog implements CatalogSource {
         params.set('cursor', cursor);
       }
 
-      const payload = await this.requestJson<FalModelsListResponse>(
+      const rawPayload = await this.requestJson<unknown>(
         `${this.modelsEndpoint}?${params.toString()}`
       );
-
-      if (!payload || !Array.isArray(payload.models)) {
-        throw new WhichModelError(
-          'fal.ai catalog response is invalid.',
-          ExitCode.NETWORK_ERROR,
-          'Retry in a few minutes.'
-        );
+      const payloadResult = parseFalModelsListResponse(rawPayload);
+      if (payloadResult.isErr()) {
+        throw payloadResult.error;
       }
+      const payload = payloadResult.value;
 
       all.push(
         ...payload.models.filter(
@@ -264,7 +250,20 @@ export class FalCatalog implements CatalogSource {
           throw this.buildHttpError(response.status);
         }
 
-        return (await response.json()) as T;
+        const payloadResult = await wrapResultAsync(
+          () => response.json(),
+          () =>
+            new WhichModelError(
+              'fal.ai response body is invalid JSON.',
+              ExitCode.NETWORK_ERROR,
+              'Retry in a few minutes.'
+            )
+        );
+        if (payloadResult.isErr()) {
+          throw payloadResult.error;
+        }
+
+        return payloadResult.value as T;
       } catch (error) {
         lastError = error;
 
@@ -313,16 +312,14 @@ export class FalCatalog implements CatalogSource {
     }
 
     try {
-      const payload = await this.requestJson<FalPricingResponse>(
+      const rawPayload = await this.requestJson<unknown>(
         `${this.pricingEndpoint}?${params.toString()}`
       );
-      if (!payload || !Array.isArray(payload.prices)) {
-        throw new WhichModelError(
-          'fal.ai pricing response is invalid.',
-          ExitCode.NETWORK_ERROR,
-          'Retry in a few minutes.'
-        );
+      const payloadResult = parseFalPricingResponse(rawPayload);
+      if (payloadResult.isErr()) {
+        throw payloadResult.error;
       }
+      const payload = payloadResult.value;
 
       for (const price of payload.prices) {
         if (!price || typeof price.endpoint_id !== 'string') {

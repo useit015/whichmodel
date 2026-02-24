@@ -2,17 +2,18 @@ import type { CatalogSource } from './source.js';
 import { normalizeOpenRouterModel } from './normalization.js';
 import { readCache, writeCache } from './cache.js';
 import { DEFAULT_CACHE_TTL_SECONDS } from '../config.js';
+import { parseOpenRouterResponse } from '../schemas/provider-schemas.js';
 import {
   isAbortError,
   wait,
   withJitter,
   DEFAULT_RETRY_DELAYS_MS
 } from '../utils/common.js';
+import { wrapResultAsync } from '../utils/result.js';
 import {
   ExitCode,
   WhichModelError,
-  type ModelEntry,
-  type OpenRouterResponse
+  type ModelEntry
 } from '../types.js';
 
 const DEFAULT_ENDPOINT = 'https://openrouter.ai/api/v1/models';
@@ -78,14 +79,24 @@ export class OpenRouterCatalog implements CatalogSource {
           throw this.buildHttpError(response.status);
         }
 
-        const payload = (await response.json()) as OpenRouterResponse;
-        if (!payload || !Array.isArray(payload.data)) {
-          throw new WhichModelError(
-            'OpenRouter catalog response is invalid.',
-            ExitCode.NETWORK_ERROR,
-            'Try again shortly. If this persists, check https://status.openrouter.ai.'
-          );
+        const rawPayload = await wrapResultAsync(
+          () => response.json(),
+          () =>
+            new WhichModelError(
+              'OpenRouter catalog response is invalid.',
+              ExitCode.NETWORK_ERROR,
+              'Try again shortly. If this persists, check https://status.openrouter.ai.'
+            )
+        );
+        if (rawPayload.isErr()) {
+          throw rawPayload.error;
         }
+
+        const payloadResult = parseOpenRouterResponse(rawPayload.value);
+        if (payloadResult.isErr()) {
+          throw payloadResult.error;
+        }
+        const payload = payloadResult.value;
 
         const models = payload.data
           .map(model => normalizeOpenRouterModel(model))

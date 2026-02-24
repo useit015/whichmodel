@@ -2,9 +2,10 @@ import {
   ExitCode,
   WhichModelError,
   type OpenRouterChatRequest,
-  type OpenRouterChatResponse,
 } from "../types.js";
+import { parseOpenRouterChatResponse } from "../schemas/llm-schemas.js";
 import { isAbortError, wait, withJitter, DEFAULT_RETRY_DELAYS_MS } from "../utils/common.js";
+import { wrapResultAsync } from "../utils/result.js";
 
 const OPENROUTER_CHAT_URL = "https://openrouter.ai/api/v1/chat/completions";
 const DEFAULT_TIMEOUT_MS = 30_000;
@@ -83,7 +84,24 @@ export async function requestRecommendationCompletion(
         );
       }
 
-      const payload = (await response.json()) as OpenRouterChatResponse;
+      const rawPayload = await wrapResultAsync(
+        () => response.json(),
+        () =>
+          new WhichModelError(
+            "OpenRouter LLM returned malformed JSON.",
+            ExitCode.LLM_FAILED,
+            "Retry the request."
+          )
+      );
+      if (rawPayload.isErr()) {
+        throw rawPayload.error;
+      }
+
+      const payloadResult = parseOpenRouterChatResponse(rawPayload.value);
+      if (payloadResult.isErr()) {
+        throw payloadResult.error;
+      }
+      const payload = payloadResult.value;
       const content = payload.choices?.[0]?.message?.content;
       if (!content || typeof content !== "string") {
         throw new WhichModelError(

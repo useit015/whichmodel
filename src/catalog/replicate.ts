@@ -2,18 +2,19 @@ import type { CatalogSource } from './source.js';
 import { normalizeReplicateModel } from './normalization.js';
 import { readCache, writeCache } from './cache.js';
 import { DEFAULT_CACHE_TTL_SECONDS } from '../config.js';
+import { parseReplicateModelsResponse } from '../schemas/provider-schemas.js';
 import {
   isAbortError,
   wait,
   withJitter,
   DEFAULT_RETRY_DELAYS_MS
 } from '../utils/common.js';
+import { wrapResultAsync } from '../utils/result.js';
 import {
   ExitCode,
   WhichModelError,
   type ModelEntry,
-  type ReplicateModel,
-  type ReplicateModelsResponse
+  type ReplicateModel
 } from '../types.js';
 
 const DEFAULT_ENDPOINT = 'https://api.replicate.com/v1/models';
@@ -95,14 +96,12 @@ export class ReplicateCatalog implements CatalogSource {
       pagesFetched < MAX_MODEL_PAGES &&
       all.length < MAX_CANDIDATE_MODELS
     ) {
-      const payload = await this.requestJson<ReplicateModelsResponse>(nextUrl);
-      if (!payload || !Array.isArray(payload.results)) {
-        throw new WhichModelError(
-          'Replicate catalog response is invalid.',
-          ExitCode.NETWORK_ERROR,
-          'Retry in a few minutes.'
-        );
+      const rawPayload = await this.requestJson<unknown>(nextUrl);
+      const payloadResult = parseReplicateModelsResponse(rawPayload);
+      if (payloadResult.isErr()) {
+        throw payloadResult.error;
       }
+      const payload = payloadResult.value;
 
       for (const model of payload.results) {
         if (model?.visibility === 'private') {
@@ -172,7 +171,20 @@ export class ReplicateCatalog implements CatalogSource {
           throw this.buildHttpError(response.status);
         }
 
-        return (await response.json()) as T;
+        const payloadResult = await wrapResultAsync(
+          () => response.json(),
+          () =>
+            new WhichModelError(
+              'Replicate response body is invalid JSON.',
+              ExitCode.NETWORK_ERROR,
+              'Retry in a few minutes.'
+            )
+        );
+        if (payloadResult.isErr()) {
+          throw payloadResult.error;
+        }
+
+        return payloadResult.value as T;
       } catch (error) {
         lastError = error;
 

@@ -1,4 +1,5 @@
 import { compressForLLM, groupByModality } from "../catalog/compressor.js";
+import { parseRecommendationPayload } from "../schemas/llm-schemas.js";
 import {
   ExitCode,
   WhichModelError,
@@ -7,6 +8,7 @@ import {
   type Recommendation,
   type RecommendationMeta,
 } from "../types.js";
+import { wrapResult } from "../utils/result.js";
 import { generateFallbackRecommendation } from "./fallback.js";
 import { requestRecommendationCompletion } from "./llm-client.js";
 import { buildSystemPrompt, buildUserPrompt } from "./prompts.js";
@@ -177,26 +179,25 @@ function attachMissingModalityGuidance(
 function parseRecommendation(rawContent: string): Recommendation {
   const sanitized = stripMarkdownFences(rawContent).trim();
 
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(sanitized);
-  } catch {
-    throw new WhichModelError(
-      "LLM returned invalid JSON.",
-      ExitCode.LLM_FAILED,
-      "Retry in a few minutes or use fallback mode."
-    );
+  const parseResult = wrapResult(
+    () => JSON.parse(sanitized),
+    () =>
+      new WhichModelError(
+        "LLM returned invalid JSON.",
+        ExitCode.LLM_FAILED,
+        "Retry in a few minutes or use fallback mode."
+      )
+  );
+  if (parseResult.isErr()) {
+    throw parseResult.error;
   }
 
-  if (!isRecommendation(parsed)) {
-    throw new WhichModelError(
-      "LLM JSON response does not match expected recommendation structure.",
-      ExitCode.LLM_FAILED,
-      "Retry in a few minutes or use fallback mode."
-    );
+  const recommendationResult = parseRecommendationPayload(parseResult.value);
+  if (recommendationResult.isErr()) {
+    throw recommendationResult.error;
   }
 
-  return parsed;
+  return recommendationResult.value;
 }
 
 function repairRecommendationIds(
@@ -229,24 +230,6 @@ function repairRecommendationIds(
 
 function stripMarkdownFences(content: string): string {
   return content.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
-}
-
-function isRecommendation(value: unknown): value is Recommendation {
-  if (typeof value !== "object" || value === null) {
-    return false;
-  }
-
-  const candidate = value as Partial<Recommendation>;
-  return (
-    typeof candidate.taskAnalysis?.summary === "string" &&
-    typeof candidate.taskAnalysis?.detectedModality === "string" &&
-    typeof candidate.taskAnalysis?.modalityReasoning === "string" &&
-    Array.isArray(candidate.taskAnalysis?.keyRequirements) &&
-    typeof candidate.taskAnalysis?.costFactors === "string" &&
-    typeof candidate.recommendations?.cheapest?.id === "string" &&
-    typeof candidate.recommendations?.balanced?.id === "string" &&
-    typeof candidate.recommendations?.best?.id === "string"
-  );
 }
 
 function estimateRecommendationCost(

@@ -7,9 +7,12 @@
  */
 
 import chalk, { Chalk } from "chalk";
-import type { CompressedModel, ModelEntry } from "../types.js";
+import { ExitCode, WhichModelError, type CompressedModel, type ModelEntry } from "../types.js";
 import { compressForLLM } from "../catalog/compressor.js";
+import { renderBox } from "../formatter/box.js";
 import { requestRecommendationCompletion } from "../recommender/llm-client.js";
+import { parseCompareResultPayload } from "../schemas/llm-schemas.js";
+import { wrapResult } from "../utils/result.js";
 
 export interface CompareOptions {
   task: string;
@@ -142,21 +145,11 @@ export async function callCompareLLM(
   });
 
   // Parse the JSON response
-  try {
-    const parsed = JSON.parse(response.content) as CompareResult;
-
-    // Validate the response structure
-    if (!parsed.winner || !parsed.modelA || !parsed.modelB) {
-      throw new Error("Invalid response structure");
-    }
-
-    // Ensure winner is valid
-    if (!["A", "B", "tie"].includes(parsed.winner)) {
-      parsed.winner = "tie";
-    }
-
-    return parsed;
-  } catch {
+  const parseResult = wrapResult(
+    () => JSON.parse(stripMarkdownFences(response.content)),
+    () => new WhichModelError("Invalid compare response JSON.", ExitCode.LLM_FAILED)
+  );
+  if (parseResult.isErr()) {
     // If parsing fails, return a default comparison
     return {
       winner: "tie",
@@ -175,6 +168,32 @@ export async function callCompareLLM(
       },
     };
   }
+
+  const comparisonResult = parseCompareResultPayload(parseResult.value);
+  if (comparisonResult.isErr()) {
+    return {
+      winner: "tie",
+      reasoning: "Could not determine a clear winner from the comparison.",
+      modelA: {
+        strengths: ["Model specifications available"],
+        weaknesses: [],
+        estimatedCost: formatModelPricing(modelA),
+        suitedFor: ["General use"],
+      },
+      modelB: {
+        strengths: ["Model specifications available"],
+        weaknesses: [],
+        estimatedCost: formatModelPricing(modelB),
+        suitedFor: ["General use"],
+      },
+    };
+  }
+
+  return comparisonResult.value;
+}
+
+function stripMarkdownFences(content: string): string {
+  return content.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
 }
 
 /**
@@ -273,7 +292,11 @@ export function formatCompareTerminal(
     }
   }
 
-  return lines.join("\n");
+  return renderBox(lines.join("\n"), {
+    title: "Compare",
+    noColor,
+    borderColor: "yellow",
+  });
 }
 
 /**

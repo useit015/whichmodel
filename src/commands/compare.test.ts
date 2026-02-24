@@ -1,6 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { ModelEntry, TextPricing, ImagePricing } from "../types.js";
 import {
+  callCompareLLM,
   findModelById,
   formatCompareTerminal,
   formatCompareJSON,
@@ -176,6 +177,7 @@ describe("formatCompareTerminal", () => {
     expect(output).toContain("Weaknesses:");
     expect(output).toContain("Fast");
     expect(output).toContain("High quality");
+    expect(output).toContain("╭");
   });
 
   it("formats comparison with Model B as winner", () => {
@@ -355,5 +357,39 @@ describe("formatCompareJSON", () => {
     expect(json.modelA.name).toBe("Specific Model A");
     expect(json.modelB.id).toBe("fal::specific/model-b");
     expect(json.modelB.name).toBe("Specific Model B");
+  });
+});
+
+describe("callCompareLLM", () => {
+  it("returns deterministic fallback when llm output is malformed", async () => {
+    const mockFetch = vi.fn();
+    const oldFetch = globalThis.fetch;
+    try {
+      globalThis.fetch = mockFetch as unknown as typeof fetch;
+      mockFetch.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          model: "deepseek/deepseek-v3.2",
+          choices: [{ index: 0, message: { role: "assistant", content: "{broken" }, finish_reason: "stop" }],
+        }),
+      } as Response);
+
+      const modelA = createTextModel({ id: "openrouter::model-a", name: "Model A" });
+      const modelB = createTextModel({ id: "openrouter::model-b", name: "Model B" });
+
+      const result = await callCompareLLM(
+        "compare code models",
+        modelA,
+        modelB,
+        "sk-or-test",
+        "deepseek/deepseek-v3.2"
+      );
+
+      expect(result.winner).toBe("tie");
+      expect(result.reasoning).toContain("Could not determine a clear winner");
+    } finally {
+      globalThis.fetch = oldFetch;
+    }
   });
 });

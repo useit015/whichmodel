@@ -210,6 +210,26 @@ describe("recommend", () => {
     );
   });
 
+  it("falls back when llm returns malformed JSON", async () => {
+    const { recommend } = await loadRecommendWithMock({
+      content: "{invalid-json",
+      model: "deepseek/deepseek-v3.2",
+      usage: { promptTokens: 1000, completionTokens: 200 },
+    });
+    const result = await recommend({
+      task: "summarize legal docs",
+      models: textModels,
+      apiKey: "sk-or-test",
+      recommenderModel: "deepseek/deepseek-v3.2",
+      catalogSources: ["openrouter"],
+    });
+
+    expect(result.recommendation.taskAnalysis.detectedModality).toBe("text");
+    expect(result.recommendation.recommendations.cheapest.id).toBe(
+      "openrouter::deepseek/deepseek-v3.2"
+    );
+  });
+
   it("returns image model picks for image tasks in fallback path", async () => {
     const { recommend } = await loadRecommendWithMock(
       new WhichModelError("LLM failed", ExitCode.LLM_FAILED, "retry")
