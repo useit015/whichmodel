@@ -221,22 +221,23 @@ function normalizeReplicatePricing(
   const pricingSources = [raw.pricing, raw.latest_version?.pricing];
 
   if (modality === "text") {
-    const promptEntry =
+    const promptEntryBase =
       extractFirstNumericByKey(pricingSources, [
         "prompt_per_1m",
         "input_per_1m",
         "prompt",
         "input",
       ]) ?? extractFirstNumericByKey(pricingSources, ["per_token", "token"]);
-    const completionEntry =
+    const completionEntryBase =
       extractFirstNumericByKey(pricingSources, [
         "completion_per_1m",
         "output_per_1m",
         "completion",
         "output",
       ]) ??
-      extractFirstNumericByKey(pricingSources, ["per_token", "token"]) ??
-      promptEntry;
+      extractFirstNumericByKey(pricingSources, ["per_token", "token"]);
+    const promptEntry = promptEntryBase ?? completionEntryBase;
+    const completionEntry = completionEntryBase ?? promptEntryBase;
     const promptPer1mTokens = normalizeTokenPricePer1m(promptEntry);
     const completionPer1mTokens = normalizeTokenPricePer1m(completionEntry);
     if (
@@ -269,10 +270,19 @@ function normalizeReplicatePricing(
   }
 
   if (modality === "image") {
+    const perMegapixel = normalizeMoneyAmount(
+      extractFirstNumericByKey(pricingSources, [
+        "output_per_megapixel",
+        "per_megapixel",
+        "input_per_megapixel",
+        "image_megapixel",
+        "megapixel",
+      ])
+    );
     const perImage = normalizeMoneyAmount(
       extractFirstNumericByKey(pricingSources, [
         "per_image",
-        "image",
+        "image_output_count",
         "per_generation",
         "generation",
         "per_run",
@@ -281,7 +291,19 @@ function normalizeReplicatePricing(
       ])
     );
 
-    return perImage !== undefined ? { type: "image", perImage } : { type: "image" };
+    if (perImage !== undefined && perMegapixel !== undefined) {
+      return { type: "image", perImage, perMegapixel };
+    }
+
+    if (perImage !== undefined) {
+      return { type: "image", perImage };
+    }
+
+    if (perMegapixel !== undefined) {
+      return { type: "image", perMegapixel };
+    }
+
+    return { type: "image" };
   }
 
   if (modality === "video") {

@@ -391,6 +391,42 @@ describe("normalizeReplicateModel", () => {
     });
   });
 
+  it("normalizes text models with output-only token pricing by mirroring to input", () => {
+    const raw: ReplicateModel = {
+      owner: "meta",
+      name: "llama-output-only",
+      description: "General-purpose text generation model",
+      pricing: {
+        output_per_1m: 0.9,
+      },
+      latest_version: {
+        openapi_schema: {
+          components: {
+            schemas: {
+              Input: {
+                type: "object",
+                properties: {
+                  prompt: { type: "string" },
+                },
+              },
+              Output: {
+                type: "string",
+              },
+            },
+          },
+        },
+      },
+    };
+
+    const normalized = normalizeReplicateModel(raw);
+    expect(normalized).not.toBeNull();
+    expect(normalized?.pricing).toMatchObject({
+      type: "text",
+      promptPer1mTokens: 0.9,
+      completionPer1mTokens: 0.9,
+    });
+  });
+
   it("returns null for text models when pricing cannot be inferred", () => {
     const raw: ReplicateModel = {
       owner: "meta",
@@ -460,7 +496,23 @@ describe("normalizeReplicateModel", () => {
     const normalized = normalizeReplicateModel(raw);
     expect(normalized).not.toBeNull();
     expect(normalized?.modality).toBe("image");
-    expect(normalized?.pricing.type).toBe("image");
+    expect(normalized?.pricing).toMatchObject({ type: "image", perMegapixel: 0.01 });
+  });
+
+  it("normalizes replicate image megapixel pricing from output_per_megapixel key", () => {
+    const raw: ReplicateModel = {
+      owner: "black-forest-labs",
+      name: "flux-2-klein-9b",
+      description: "Image generation",
+      pricing: {
+        output_per_megapixel: 0.015,
+      },
+    };
+
+    const normalized = normalizeReplicateModel(raw);
+    expect(normalized).not.toBeNull();
+    expect(normalized?.modality).toBe("image");
+    expect(normalized?.pricing).toMatchObject({ type: "image", perMegapixel: 0.015 });
   });
 
   it("infers video modality from per_second pricing", () => {
