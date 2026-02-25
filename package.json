@@ -13,7 +13,10 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "catalog:fetch": "tsx src/scripts/catalog-fetch.ts",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "release:check": "npm run lint && npm test && npm run build",
+    "release:pack": "npm pack --dry-run",
+    "release:brew": "node scripts/generate-homebrew-formula.mjs"
   },
   "files": [
     "dist"
@@ -54,5 +57,9 @@
   "bugs": {
     "url": "https://github.com/useit015/whichmodel/issues"
   },
-  "homepage": "https://github.com/useit015/whichmodel#readme"
+  "homepage": "https://github.com/useit015/whichmodel#readme",
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
 }
