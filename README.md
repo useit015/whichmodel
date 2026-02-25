@@ -26,14 +26,33 @@ It uses live provider catalogs and task-aware reasoning so you can make a decisi
 
 ## Install
 
+Global install with npm:
+
 ```bash
 npm install -g whichmodel
 ```
 
-Or without installing:
+Run without installing:
 
 ```bash
 npx whichmodel "summarize legal contracts"
+```
+
+Install with Homebrew (after tap setup):
+
+```bash
+brew tap useit015/tap
+brew install whichmodel
+```
+
+Install from source:
+
+```bash
+git clone https://github.com/useit015/whichmodel.git
+cd whichmodel
+npm install
+npm run build
+npm link
 ```
 
 ## Quick Start
